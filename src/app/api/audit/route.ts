@@ -73,18 +73,20 @@ export async function POST(req: NextRequest) {
   const domainCheck = antiAbuse.checkDomainCooldown(canonicalHostname);
   if (!domainCheck.allowed && domainCheck.existingAuditId) {
     const existingReport = auditStore.get(domainCheck.existingAuditId);
-    return NextResponse.json(
-      {
-        error: "DOMAIN_COOLDOWN",
-        message: `This website was recently analyzed. ${canonicalHostname} can be analyzed again on: ${domainCheck.nextAllowedDate || "7 days from scan"}.`,
-        domain: canonicalHostname,
-        existingAuditId: domainCheck.existingAuditId,
-        nextAllowedDate: domainCheck.nextAllowedDate,
-        cooldownRemainingSeconds: domainCheck.cooldownRemainingSeconds,
-        report: existingReport || undefined,
-      },
-      { status: 409 }
-    );
+    if (existingReport) {
+      return NextResponse.json(
+        {
+          error: "DOMAIN_COOLDOWN",
+          message: `This website was recently analyzed. ${canonicalHostname} can be analyzed again on: ${domainCheck.nextAllowedDate || "7 days from scan"}.`,
+          domain: canonicalHostname,
+          existingAuditId: domainCheck.existingAuditId,
+          nextAllowedDate: domainCheck.nextAllowedDate,
+          cooldownRemainingSeconds: domainCheck.cooldownRemainingSeconds,
+          report: existingReport,
+        },
+        { status: 409 }
+      );
+    }
   }
 
   // 5. Server Concurrency Throttling
