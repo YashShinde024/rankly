@@ -19,7 +19,12 @@ function generateAuditRef(): string {
   return `RKL-${hex}`;
 }
 
+export const maxDuration = 30; // 30s timeout for Vercel Serverless
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
+  let currentStage = "VALIDATING";
+
   // 1. IP Rate Limiting (5 audits / IP / hour)
   const clientIp = antiAbuse.extractClientIp(req);
   const ipCheck = antiAbuse.checkIpLimit(clientIp);
@@ -27,6 +32,8 @@ export async function POST(req: NextRequest) {
   if (!ipCheck.allowed) {
     return NextResponse.json(
       {
+        success: false,
+        stage: "VALIDATING",
         error: "RATE_LIMITED",
         message: "You've reached the current audit limit (5 audits per hour). Please try again later.",
         retryAfter: ipCheck.retryAfterSeconds,
@@ -44,7 +51,7 @@ export async function POST(req: NextRequest) {
     body = await req.json();
   } catch {
     return NextResponse.json(
-      { error: "INVALID_JSON", message: "Malformed JSON request body." },
+      { success: false, stage: "VALIDATING", error: "INVALID_JSON", message: "Malformed JSON request body." },
       { status: 400 }
     );
   }
@@ -52,7 +59,7 @@ export async function POST(req: NextRequest) {
   const { url } = body;
   if (!url || typeof url !== "string") {
     return NextResponse.json(
-      { error: "MISSING_URL", message: "Enter a valid public website URL." },
+      { success: false, stage: "VALIDATING", error: "MISSING_URL", message: "Enter a valid public website URL." },
       { status: 400 }
     );
   }
@@ -61,7 +68,7 @@ export async function POST(req: NextRequest) {
   const validation = validateAndNormalizeUrl(url);
   if (!validation.isValid || !validation.normalizedUrl || !validation.domain) {
     return NextResponse.json(
-      { error: "INVALID_URL", message: validation.error || "That doesn't look like a valid website URL." },
+      { success: false, stage: "VALIDATING", error: "INVALID_URL", message: validation.error || "That doesn't look like a valid website URL." },
       { status: 400 }
     );
   }
@@ -76,10 +83,13 @@ export async function POST(req: NextRequest) {
     if (existingReport) {
       return NextResponse.json(
         {
+          success: true,
+          stage: "DOMAIN_COOLDOWN",
           error: "DOMAIN_COOLDOWN",
           message: `This website was recently analyzed. ${canonicalHostname} can be analyzed again on: ${domainCheck.nextAllowedDate || "7 days from scan"}.`,
           domain: canonicalHostname,
           existingAuditId: domainCheck.existingAuditId,
+          auditId: domainCheck.existingAuditId,
           nextAllowedDate: domainCheck.nextAllowedDate,
           cooldownRemainingSeconds: domainCheck.cooldownRemainingSeconds,
           report: existingReport,
@@ -93,6 +103,8 @@ export async function POST(req: NextRequest) {
   if (!antiAbuse.acquireConcurrency()) {
     return NextResponse.json(
       {
+        success: false,
+        stage: "SERVER_CAPACITY",
         error: "SERVER_CAPACITY",
         message: "Rankly is processing several audits right now. Please try again shortly.",
       },
@@ -102,6 +114,7 @@ export async function POST(req: NextRequest) {
 
   try {
     // 6. Fetch Website HTML & Server Headers
+    currentStage = "FETCHING_WEBSITE";
     const targetUrl = validation.normalizedUrl;
     const fetchResult = await fetchWebsite(targetUrl);
 
@@ -119,6 +132,7 @@ export async function POST(req: NextRequest) {
     const pageType = detectPageType(parsedDoc, fetchResult.finalUrl);
 
     // 10. SEO, AEO, and GEO Deterministic Analyzers (Page-Type Aware)
+    currentStage = "ANALYZING_SIGNALS";
     const checks = analyzeSeo(fetchResult, parsedDoc, robotsTxt, sitemapXml, pageType);
 
     // 11. Multi-Pillar Strict Scoring Engine with Deductions & Mathematical Breakdown
@@ -138,12 +152,29 @@ export async function POST(req: NextRequest) {
     } = calculateIntelligenceScores(checks, parsedDoc, pageType);
 
     // 12. AI Layer (Gemini with Resilient Fallback)
-    const { aiInsight, recommendations } = await analyzeWithGemini(
-      canonicalHostname,
-      overallScore,
-      categories,
-      checks
-    );
+    currentStage = "GENERATING_AI_INSIGHTS";
+    let aiInsightResult: { aiInsight: SeoAuditReport["aiInsight"]; recommendations: SeoAuditReport["recommendations"] };
+    try {
+      aiInsightResult = await analyzeWithGemini(
+        canonicalHostname,
+        overallScore,
+        categories,
+        checks
+      );
+    } catch (aiErr) {
+      console.warn("[POST /api/audit] Gemini AI error (falling back to deterministic):", aiErr);
+      aiInsightResult = {
+        aiInsight: {
+          isAvailable: false,
+          overview: `Website technical health for ${canonicalHostname} scored ${overallScore}/100. AI synthesis fell back to deterministic rules.`,
+          strengths: ["Core web structure analyzed."],
+          topPriorities: ["Review technical recommendations."],
+        },
+        recommendations: [],
+      };
+    }
+
+    const { aiInsight, recommendations } = aiInsightResult;
 
     // 13. Build Final Structured Report with Verified Canonical Identity
     const totalImgs = parsedDoc.images.length;
@@ -226,6 +257,7 @@ export async function POST(req: NextRequest) {
     };
 
     // 14. Persist in Store & Record Domain Audit for 7-Day Cooldown (Async persistence guaranteed)
+    currentStage = "SAVING_AUDIT";
     await auditStore.set(report);
     await antiAbuse.recordDomainAudit(canonicalHostname, auditId);
 
@@ -235,18 +267,24 @@ export async function POST(req: NextRequest) {
       console.warn(`[POST /api/audit] Persistence verification warning for ${auditId}`);
     }
 
+    currentStage = "COMPLETE";
     return NextResponse.json(
       {
         success: true,
+        stage: "COMPLETE",
         auditId: report.id,
         report,
       },
       { status: 200 }
     );
   } catch (err: any) {
+    console.error(`[POST /api/audit] Failure at stage ${currentStage}:`, err);
+
     if (err instanceof FetchError) {
       return NextResponse.json(
         {
+          success: false,
+          stage: currentStage,
           error: err.message,
           message: err.userMessage,
         },
@@ -256,8 +294,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       {
+        success: false,
+        stage: currentStage,
         error: "INTERNAL_ERROR",
-        message: "An unexpected error occurred while analyzing the website. Please try again.",
+        message: err?.message || "An unexpected error occurred while analyzing the website. Please try again.",
       },
       { status: 500 }
     );

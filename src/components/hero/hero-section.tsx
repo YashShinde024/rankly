@@ -68,17 +68,31 @@ export function HeroSection() {
       clearTimeout(t2);
       clearTimeout(t3);
 
-      const data = await response.json();
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        console.error("[HeroSection] Failed to parse JSON response:", parseErr, "Status:", response.status);
+      }
 
-      if (!response.ok) {
+      if (!response.ok || !data?.success) {
+        console.error("[HeroSection] Audit request failed:", {
+          status: response.status,
+          statusText: response.statusText,
+          data,
+          stage: data?.stage || "UNKNOWN",
+          error: data?.error,
+          message: data?.message,
+        });
+
         setActiveStep(null);
         setCompletedSteps(new Set());
 
-        if (response.status === 409 && data.error === "DOMAIN_COOLDOWN") {
+        if (response.status === 409 && (data?.error === "DOMAIN_COOLDOWN" || data?.stage === "DOMAIN_COOLDOWN")) {
           // 7-day cooldown UX feedback
           setCooldownInfo({
             domain: data.domain || inputUrl,
-            existingAuditId: data.existingAuditId,
+            existingAuditId: data.existingAuditId || data.auditId,
             nextAllowedDate: data.nextAllowedDate,
           });
           return;
@@ -87,12 +101,20 @@ export function HeroSection() {
         if (response.status === 429) {
           setError("You've reached the current audit limit (5 audits per hour). Please try again later.");
         } else if (response.status === 408) {
-          setError("The website took too long to respond.");
+          setError("The website took too long to respond (timeout).");
         } else if (response.status === 422) {
-          setError(data.message || "This website can't be analyzed (unreachable or unsupported content).");
+          setError(data?.message || "This website can't be analyzed (unreachable, blocked, or unsupported content).");
         } else {
-          setError(data.message || "Enter a valid public website URL.");
+          setError(data?.message || "Unable to complete this audit. Rankly encountered an issue while analyzing this website.");
         }
+        return;
+      }
+
+      if (!data.auditId) {
+        console.error("[HeroSection] Response ok but missing auditId:", data);
+        setActiveStep(null);
+        setCompletedSteps(new Set());
+        setError("Unable to locate audit report ID. Please try again.");
         return;
       }
 
@@ -100,12 +122,13 @@ export function HeroSection() {
       setActiveStep("done");
 
       setTimeout(() => {
-        router.push(`/audit/${data.auditId}`);
+        router.push(`/audit/${encodeURIComponent(data.auditId)}`);
       }, 450);
-    } catch {
+    } catch (netErr) {
+      console.error("[HeroSection] Network exception during audit:", netErr);
       setActiveStep(null);
       setCompletedSteps(new Set());
-      setError("We couldn't reach this website. Please check your network connection.");
+      setError("We couldn't reach the server. Please check your network connection and try again.");
     }
   };
 
@@ -285,11 +308,36 @@ export function HeroSection() {
             {/* Error Message Display */}
             {error && (
               <div
-                className="mt-3 flex items-start gap-2 text-xs font-mono text-rose-700"
+                className="mt-4 border border-rose-200 bg-rose-50/70 p-4 font-mono text-xs text-rose-900 space-y-2"
                 role="alert"
               >
-                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <span>{error}</span>
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertCircle className="h-4 w-4 text-rose-700 shrink-0" />
+                  <span>Unable to complete this audit</span>
+                </div>
+                <p className="text-rose-800 text-[11px] leading-relaxed">
+                  {error}
+                </p>
+                <div className="pt-2 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={(e) => handleAnalyze(e)}
+                    className="inline-flex items-center gap-1.5 bg-[#121214] text-white px-3 py-1.5 text-xs font-medium hover:bg-black transition-colors cursor-pointer"
+                  >
+                    <span>Try again</span>
+                    <ArrowRight className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      setUrl("");
+                    }}
+                    className="text-[11px] text-[#66666E] hover:text-[#121214] underline underline-offset-2"
+                  >
+                    Clear URL
+                  </button>
+                </div>
               </div>
             )}
 

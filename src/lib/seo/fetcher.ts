@@ -91,29 +91,47 @@ export async function fetchWebsite(targetUrl: string): Promise<RawFetchResult> {
       }
 
       // Read buffer with max size limit
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new FetchError("Unable to read response stream", 500, "Could not read data from target website.");
-      }
-
-      const chunks: Uint8Array[] = [];
+      let html = "";
       let totalBytes = 0;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          totalBytes += value.length;
-          if (totalBytes > MAX_RESPONSE_SIZE_BYTES) {
-            reader.cancel();
-            throw new FetchError("Page payload exceeds maximum limit (2.5MB)", 422, "The webpage HTML exceeds the maximum allowed scan size of 2.5MB.");
+      if (response.body && typeof response.body.getReader === "function") {
+        try {
+          const reader = response.body.getReader();
+          const chunks: Uint8Array[] = [];
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              totalBytes += value.length;
+              if (totalBytes > MAX_RESPONSE_SIZE_BYTES) {
+                try {
+                  reader.cancel();
+                } catch {
+                  // Ignore cancel errors
+                }
+                throw new FetchError("Page payload exceeds maximum limit (2.5MB)", 422, "The webpage HTML exceeds the maximum allowed scan size of 2.5MB.");
+              }
+              chunks.push(value);
+            }
           }
-          chunks.push(value);
+
+          const htmlBuffer = Buffer.concat(chunks);
+          html = htmlBuffer.toString("utf-8");
+        } catch (streamErr: any) {
+          if (streamErr instanceof FetchError) throw streamErr;
+          // Fallback to response.text() if stream reader encounters runtime quirks
+          html = await response.text();
+          totalBytes = Buffer.byteLength(html, "utf-8");
         }
+      } else {
+        html = await response.text();
+        totalBytes = Buffer.byteLength(html, "utf-8");
       }
 
-      const htmlBuffer = Buffer.concat(chunks);
-      const html = htmlBuffer.toString("utf-8");
+      if (!html || html.trim().length === 0) {
+        throw new FetchError("Empty response body", 422, "The target website returned an empty HTML document.");
+      }
       const responseTimeMs = Date.now() - startTime;
 
       const headerObj: Record<string, string> = {};
