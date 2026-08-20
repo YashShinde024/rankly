@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ExplorePage() {
-  const recentAudits = auditStore.getRecent();
+  const recentAudits = await auditStore.getRecent();
 
   return (
     <div className="min-h-screen bg-[#FBFBFA] text-[#121214] flex flex-col justify-between">

@@ -1,0 +1,21 @@
+[
+  {
+    "id": "RKL-8F31A2",
+    "domain": "example.com",
+    "overallScore": 78,
+    "scoreInterpretation": "Good, but important gaps remain",
+    "pillars": {
+      "seo": 82,
+      "aeo": 72,
+      "geo": 80
+    },
+    "categories": {
+      "technical": 92,
+      "onpage": 78,
+      "content": 80,
+      "social": 90
+    },
+    "timestamp": 1787255099070,
+    "timeAgo": "just now"
+  }
+]

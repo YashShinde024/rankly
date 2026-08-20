@@ -1,10 +1,12 @@
 import { NextRequest } from "next/server";
+import { persistenceEngine } from "@/lib/store/persistence";
+import { extractCanonicalHostname } from "@/lib/url";
 
 interface RateLimitRecord {
   timestamps: number[];
 }
 
-interface DomainCooldownRecord {
+export interface DomainCooldownRecord {
   auditId: string;
   timestamp: number;
 }
@@ -86,16 +88,25 @@ class AntiAbuseManager {
    * Domain Cooldown: A normalized hostname can only receive one new public audit every 7 DAYS.
    * Returns recent auditId, next allowed date, and remaining seconds if existing audit is found within cooldown window.
    */
-  public checkDomainCooldown(domain: string): {
+  public async checkDomainCooldown(domain: string): Promise<{
     allowed: boolean;
     cooldownActive: boolean;
     existingAuditId?: string;
     cooldownRemainingSeconds: number;
     nextAllowedDate?: string;
-  } {
+  }> {
     const now = Date.now();
-    const normalizedDomain = domain.toLowerCase().trim().replace(/^www\./, "");
-    const existing = this.domainStore.get(normalizedDomain);
+    const canonical = extractCanonicalHostname(domain);
+
+    // Check memory first, then persistent storage
+    let existing = this.domainStore.get(canonical);
+    if (!existing) {
+      const persisted = await persistenceEngine.getDomainCooldown(canonical);
+      if (persisted) {
+        existing = persisted;
+        this.domainStore.set(canonical, existing);
+      }
+    }
 
     if (existing) {
       const elapsed = now - existing.timestamp;
@@ -125,12 +136,13 @@ class AntiAbuseManager {
     };
   }
 
-  public recordDomainAudit(domain: string, auditId: string, timestamp = Date.now()): void {
-    const normalizedDomain = domain.toLowerCase().trim().replace(/^www\./, "");
-    this.domainStore.set(normalizedDomain, {
+  public async recordDomainAudit(domain: string, auditId: string, timestamp = Date.now()): Promise<void> {
+    const canonical = extractCanonicalHostname(domain);
+    this.domainStore.set(canonical, {
       auditId,
       timestamp,
     });
+    await persistenceEngine.saveDomainCooldown(canonical, auditId, timestamp);
   }
 
   /**
@@ -169,7 +181,7 @@ class AntiAbuseManager {
   public reset(identifier?: string): void {
     if (identifier) {
       this.ipStore.delete(identifier);
-      this.domainStore.delete(identifier.toLowerCase());
+      this.domainStore.delete(extractCanonicalHostname(identifier));
     } else {
       this.ipStore.clear();
       this.domainStore.clear();

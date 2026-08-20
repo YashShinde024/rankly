@@ -6,7 +6,7 @@ import { parseHtml } from "@/lib/seo/parser";
 import { analyzeSeo } from "@/lib/seo/analyzer";
 import { calculateIntelligenceScores } from "@/lib/seo/scorer";
 import { analyzeWithGemini } from "@/lib/ai/gemini";
-import { auditStore } from "@/lib/store/audit-store";
+import { auditStore, normalizeAuditId } from "@/lib/store/audit-store";
 import { detectPageType } from "@/lib/seo/page-classifier";
 import { SeoAuditReport } from "@/types/audit";
 
@@ -70,9 +70,9 @@ export async function POST(req: NextRequest) {
 
   // 4. Strict 7-Day Server-Side Domain Cooldown Enforcement
   // Check the persistent audit store before consuming crawler or AI resources.
-  const domainCheck = antiAbuse.checkDomainCooldown(canonicalHostname);
+  const domainCheck = await antiAbuse.checkDomainCooldown(canonicalHostname);
   if (!domainCheck.allowed && domainCheck.existingAuditId) {
-    const existingReport = auditStore.get(domainCheck.existingAuditId);
+    const existingReport = await auditStore.get(domainCheck.existingAuditId);
     if (existingReport) {
       return NextResponse.json(
         {
@@ -225,9 +225,15 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    // 14. Persist in Store & Record Domain Audit for 7-Day Cooldown
-    auditStore.set(report);
-    antiAbuse.recordDomainAudit(canonicalHostname, auditId);
+    // 14. Persist in Store & Record Domain Audit for 7-Day Cooldown (Async persistence guaranteed)
+    await auditStore.set(report);
+    await antiAbuse.recordDomainAudit(canonicalHostname, auditId);
+
+    // 15. Verify persistence before responding to client
+    const saved = await auditStore.get(auditId);
+    if (!saved) {
+      console.warn(`[POST /api/audit] Persistence verification warning for ${auditId}`);
+    }
 
     return NextResponse.json(
       {

@@ -1,12 +1,14 @@
 import React from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { Navbar } from "@/components/navbar/navbar";
 import { Footer } from "@/components/footer/footer";
-import { auditStore } from "@/lib/store/audit-store";
-import { DEMO_AUDIT, generateAuditForUrl } from "@/lib/demo-data";
+import { AuditNotFound } from "@/components/audit/audit-not-found";
+import { auditStore, normalizeAuditId } from "@/lib/store/audit-store";
+import { DEMO_AUDIT } from "@/lib/demo-data";
 import { ArrowRight, ArrowLeft, Shield, CheckCircle2, AlertTriangle, AlertCircle } from "lucide-react";
 import type { Metadata } from "next";
+
+export const dynamic = "force-dynamic";
 
 interface ExploreDetailPageProps {
   params: Promise<{ auditId: string }>;
@@ -15,7 +17,8 @@ interface ExploreDetailPageProps {
 export async function generateMetadata({ params }: ExploreDetailPageProps): Promise<Metadata> {
   const { auditId } = await params;
   const decodedId = decodeURIComponent(auditId);
-  const report = decodedId === "demo" ? DEMO_AUDIT : auditStore.get(decodedId);
+  const normalizedId = normalizeAuditId(decodedId);
+  const report = normalizedId === "demo" ? DEMO_AUDIT : await auditStore.get(normalizedId);
 
   if (!report) {
     return {
@@ -32,10 +35,11 @@ export async function generateMetadata({ params }: ExploreDetailPageProps): Prom
 export default async function ExploreDetailPage({ params }: ExploreDetailPageProps) {
   const { auditId } = await params;
   const decodedId = decodeURIComponent(auditId);
+  const normalizedId = normalizeAuditId(decodedId);
 
-  const report = decodedId === "demo" ? DEMO_AUDIT : auditStore.get(decodedId);
+  const report = normalizedId === "demo" ? DEMO_AUDIT : await auditStore.get(normalizedId);
   if (!report) {
-    notFound();
+    return <AuditNotFound auditId={decodedId} />;
   }
 
   const criticalCount = report.checks.filter((c) => c.status === "error").length;

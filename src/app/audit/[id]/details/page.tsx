@@ -1,11 +1,13 @@
-import { notFound } from "next/navigation";
 import { Navbar } from "@/components/navbar/navbar";
 import { Footer } from "@/components/footer/footer";
 import { AuditHeader } from "@/components/audit/audit-header";
 import { DetailedChecksTable } from "@/components/audit/detailed-checks-table";
+import { AuditNotFound } from "@/components/audit/audit-not-found";
 import { DEMO_AUDIT } from "@/lib/demo-data";
-import { auditStore } from "@/lib/store/audit-store";
+import { auditStore, normalizeAuditId } from "@/lib/store/audit-store";
 import type { Metadata } from "next";
+
+export const dynamic = "force-dynamic";
 
 interface AuditDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -14,7 +16,8 @@ interface AuditDetailsPageProps {
 export async function generateMetadata({ params }: AuditDetailsPageProps): Promise<Metadata> {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
-  const report = decodedId === "demo" ? DEMO_AUDIT : auditStore.get(decodedId);
+  const normalizedId = normalizeAuditId(decodedId);
+  const report = normalizedId === "demo" ? DEMO_AUDIT : await auditStore.get(normalizedId);
 
   if (!report) {
     return {
@@ -31,10 +34,11 @@ export async function generateMetadata({ params }: AuditDetailsPageProps): Promi
 export default async function AuditDetailsPage({ params }: AuditDetailsPageProps) {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
+  const normalizedId = normalizeAuditId(decodedId);
 
-  const report = decodedId === "demo" ? DEMO_AUDIT : auditStore.get(decodedId);
+  const report = normalizedId === "demo" ? DEMO_AUDIT : await auditStore.get(normalizedId);
   if (!report) {
-    notFound();
+    return <AuditNotFound auditId={decodedId} />;
   }
 
   const techChecks = report.checks.filter((c) => c.category === "technical");
@@ -87,7 +91,7 @@ export default async function AuditDetailsPage({ params }: AuditDetailsPageProps
               <div>
                 <span className="font-mono text-xs text-[#66666E]">03</span>
                 <h2 className="text-xl sm:text-2xl font-light tracking-tight text-[#121214]">
-                  Content & Semantic Structure
+                  Content &amp; Semantic Structure
                 </h2>
               </div>
               <span className="font-mono text-xs text-[#66666E]">
@@ -103,7 +107,7 @@ export default async function AuditDetailsPage({ params }: AuditDetailsPageProps
               <div>
                 <span className="font-mono text-xs text-[#66666E]">04</span>
                 <h2 className="text-xl sm:text-2xl font-light tracking-tight text-[#121214]">
-                  Search & Social Discoverability
+                  Search &amp; Social Discoverability
                 </h2>
               </div>
               <span className="font-mono text-xs text-[#66666E]">

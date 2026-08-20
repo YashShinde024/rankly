@@ -35,9 +35,9 @@ describe("Production Audit Engine, PDF & Explore Tests", () => {
     expect(pdfHtml).toContain("Your Next 3 Moves");
   });
 
-  it("records sanitized audits to the public explore index", () => {
-    auditStore.set(DEMO_AUDIT);
-    const recent = auditStore.getRecent();
+  it("records sanitized audits to the public explore index", async () => {
+    await auditStore.set(DEMO_AUDIT);
+    const recent = await auditStore.getRecent();
     expect(recent.length).toBeGreaterThan(0);
     expect(recent[0].domain).toBe("example.com");
     expect(recent[0].overallScore).toBe(DEMO_AUDIT.overallScore);

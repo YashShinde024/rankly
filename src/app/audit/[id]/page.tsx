@@ -1,4 +1,3 @@
-import { notFound } from "next/navigation";
 import { Navbar } from "@/components/navbar/navbar";
 import { Footer } from "@/components/footer/footer";
 import { AuditHeader } from "@/components/audit/audit-header";
@@ -11,9 +10,12 @@ import { DetailedChecksTable } from "@/components/audit/detailed-checks-table";
 import { AiRecommendations } from "@/components/audit/ai-recommendations";
 import { NextStepsSection } from "@/components/audit/next-steps-section";
 import { TechnicalDetailsSection } from "@/components/audit/technical-details-section";
+import { AuditNotFound } from "@/components/audit/audit-not-found";
 import { DEMO_AUDIT } from "@/lib/demo-data";
-import { auditStore } from "@/lib/store/audit-store";
+import { auditStore, normalizeAuditId } from "@/lib/store/audit-store";
 import type { Metadata } from "next";
+
+export const dynamic = "force-dynamic";
 
 interface AuditPageProps {
   params: Promise<{ id: string }>;
@@ -22,7 +24,8 @@ interface AuditPageProps {
 export async function generateMetadata({ params }: AuditPageProps): Promise<Metadata> {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
-  const report = decodedId === "demo" ? DEMO_AUDIT : auditStore.get(decodedId);
+  const normalizedId = normalizeAuditId(decodedId);
+  const report = normalizedId === "demo" ? DEMO_AUDIT : await auditStore.get(normalizedId);
 
   if (!report) {
     return {
@@ -40,10 +43,11 @@ export async function generateMetadata({ params }: AuditPageProps): Promise<Meta
 export default async function AuditPage({ params }: AuditPageProps) {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
+  const normalizedId = normalizeAuditId(decodedId);
 
-  const report = decodedId === "demo" ? DEMO_AUDIT : auditStore.get(decodedId);
+  const report = normalizedId === "demo" ? DEMO_AUDIT : await auditStore.get(normalizedId);
   if (!report) {
-    notFound();
+    return <AuditNotFound auditId={decodedId} />;
   }
 
   return (
