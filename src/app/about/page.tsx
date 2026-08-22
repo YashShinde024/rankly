@@ -2,13 +2,15 @@ import React from "react";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar/navbar";
 import { Footer } from "@/components/footer/footer";
+import { RanklyByNyxenLogo } from "@/components/ui/rankly-logo";
 import { ArrowRight, ShieldCheck, Cpu, Search, MessageSquare, Bot, Lock } from "lucide-react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "About Rankly — A Clearer Way to Understand Your Website",
+  title: "About Rankly — Website Intelligence for the Search & AI Era",
   description:
-    "Rankly analyzes measurable website signals across traditional search, answer-oriented content, and generative AI readiness. Built by Yash Shinde, part of Nyxen.",
+    "Why Rankly exists: websites are now discovered across search engines, answer engines, and generative AI. Our methodology, what we measure, what we don't claim — and our relationship to Nyxen.",
+  alternates: { canonical: "/about" },
 };
 
 export default function AboutPage() {
@@ -20,6 +22,9 @@ export default function AboutPage() {
         {/* 1. HERO / EDITORIAL HEADER */}
         <header className="border-b border-[#EFEFEA] bg-white py-20 sm:py-24">
           <div className="mx-auto max-w-4xl px-6">
+            <div className="mb-8">
+              <RanklyByNyxenLogo height={56} priority />
+            </div>
             <span className="font-mono text-xs uppercase tracking-widest text-[#66666E]">
               About Rankly
             </span>

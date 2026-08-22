@@ -7,7 +7,7 @@ import { ArrowRight, Check, AlertCircle, Sparkles, Clock, ArrowUpRight } from "l
 import { AuditHeroPreview } from "./audit-hero-preview";
 import { cacheAuditReport } from "@/lib/client/audit-cache";
 
-type ScanStep = "validating" | "connecting" | "checking" | "ai" | "done";
+type ScanStep = "validating" | "connecting" | "checking" | "ai" | "saving" | "done";
 
 interface CooldownInfo {
   domain: string;
@@ -59,6 +59,11 @@ export function HeroSection() {
         setActiveStep("ai");
       }, 1800);
 
+      const t4 = setTimeout(() => {
+        setCompletedSteps((prev) => new Set(prev).add("ai"));
+        setActiveStep("saving");
+      }, 3200);
+
       const response = await fetch("/api/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -68,6 +73,7 @@ export function HeroSection() {
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(t3);
+      clearTimeout(t4);
 
       let data: any = null;
       try {
@@ -102,9 +108,18 @@ export function HeroSection() {
         if (response.status === 429) {
           setError("You've reached the current audit limit (5 audits per hour). Please try again later.");
         } else if (response.status === 408) {
-          setError("The website took too long to respond (timeout).");
+          setError("The website took too long to respond (timeout). Please try again shortly.");
         } else if (response.status === 422) {
           setError(data?.message || "This website can't be analyzed (unreachable, blocked, or unsupported content).");
+        } else if (
+          response.status === 503 &&
+          (data?.error === "PERSISTENCE_FAILED" || data?.error === "PERSISTENCE_VERIFY_FAILED")
+        ) {
+          setError(
+            "Your audit completed, but Rankly couldn't save the report securely right now. This is a temporary server issue — please try again."
+          );
+        } else if (data?.error === "INVALID_URL") {
+          setError("That doesn't look like a valid public website URL. Check the address and try again.");
         } else {
           setError(data?.message || "Unable to complete this audit. Rankly encountered an issue while analyzing this website.");
         }
@@ -119,7 +134,7 @@ export function HeroSection() {
         return;
       }
 
-      setCompletedSteps((prev) => new Set(prev).add("validating").add("connecting").add("checking").add("ai"));
+      setCompletedSteps((prev) => new Set(prev).add("validating").add("connecting").add("checking").add("ai").add("saving"));
       setActiveStep("done");
 
       if (data.report) {
@@ -289,6 +304,19 @@ export function HeroSection() {
                   )}
                   <span className={completedSteps.has("ai") ? "text-[#121214]" : activeStep === "ai" ? "text-[#121214] font-medium" : "text-[#9E9EA4]"}>
                     {activeStep === "ai" ? "Synthesizing Rankly AI recommendations…" : "Rankly AI synthesis layer"}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {completedSteps.has("saving") ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-700 shrink-0" />
+                  ) : activeStep === "saving" ? (
+                    <span className="h-2 w-2 rounded-full bg-violet-600 animate-pulse shrink-0 ml-0.5 mr-1" />
+                  ) : (
+                    <span className="h-2 w-2 rounded-full bg-[#D4D4D0] shrink-0 ml-0.5 mr-1" />
+                  )}
+                  <span className={completedSteps.has("saving") ? "text-[#121214]" : activeStep === "saving" ? "text-[#121214] font-medium" : "text-[#9E9EA4]"}>
+                    {activeStep === "saving" ? "Verifying & saving your report…" : "Secure report persistence"}
                   </span>
                 </div>
               </div>

@@ -1,0 +1,23 @@
+{
+  "name": "Rankly",
+  "short_name": "Rankly",
+  "description": "Website intelligence for SEO, AEO & GEO visibility.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FBFBFA",
+  "theme_color": "#121214",
+  "icons": [
+    {
+      "src": "/favicons/web-app-manifest-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/favicons/web-app-manifest-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

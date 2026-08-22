@@ -10,8 +10,10 @@ import type { Metadata } from "next";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Rankly Index — A Live Index of Analyzed Websites | Rankly",
-  description: "A live, sanitized public index of websites recently analyzed by Rankly. No private audit data is exposed.",
+  title: "Rankly Index — Public Directory of Analyzed Websites",
+  description:
+    "A live public index of website intelligence records: overall visibility scores plus SEO, AEO, and GEO pillar breakdowns for every site analyzed by Rankly.",
+  alternates: { canonical: "/explore" },
 };
 
 export default async function ExplorePage() {

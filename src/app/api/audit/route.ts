@@ -256,15 +256,40 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    // 14. Persist in Store & Record Domain Audit for 7-Day Cooldown (Async persistence guaranteed)
-    currentStage = "SAVING_AUDIT";
-    await auditStore.set(report);
-    await antiAbuse.recordDomainAudit(canonicalHostname, auditId);
+    // 14. Persist to durable storage & record 7-day cooldown.
+    // Persistence failure must fail the request — never return a success + dead link.
+    currentStage = "SAVING_REPORT";
+    try {
+      await auditStore.set(report);
+      await antiAbuse.recordDomainAudit(canonicalHostname, auditId);
+    } catch (persistErr) {
+      console.error(`[POST /api/audit] Durable persistence failed for ${auditId}:`, persistErr);
+      return NextResponse.json(
+        {
+          success: false,
+          stage: "SAVING_REPORT",
+          error: "PERSISTENCE_FAILED",
+          message:
+            "Your website was analyzed successfully, but Rankly couldn't save the report right now. This is temporary — please try again in a moment.",
+        },
+        { status: 503 }
+      );
+    }
 
-    // 15. Verify persistence before responding to client
+    // 15. Read the exact report back from durable storage before responding.
     const saved = await auditStore.get(auditId);
-    if (!saved) {
-      console.warn(`[POST /api/audit] Persistence verification warning for ${auditId}`);
+    if (!saved || saved.overallScore !== report.overallScore) {
+      console.error(`[POST /api/audit] Persistence verification failed for ${auditId}`);
+      return NextResponse.json(
+        {
+          success: false,
+          stage: "SAVING_REPORT",
+          error: "PERSISTENCE_VERIFY_FAILED",
+          message:
+            "The report was generated but couldn't be verified in storage. Please try again in a moment.",
+        },
+        { status: 503 }
+      );
     }
 
     currentStage = "COMPLETE";

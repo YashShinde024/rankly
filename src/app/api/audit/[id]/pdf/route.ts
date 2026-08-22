@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auditStore, normalizeAuditId } from "@/lib/store/audit-store";
-import { generateAuditForUrl } from "@/lib/demo-data";
 import { generateAuditPdfHtml } from "@/lib/pdf/generate-pdf";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +17,12 @@ export async function GET(
     const decodedId = decodeURIComponent(id);
     const normalizedId = normalizeAuditId(decodedId);
 
-    let report = await auditStore.get(normalizedId);
+    const report = await auditStore.get(normalizedId);
     if (!report) {
-      report = generateAuditForUrl(decodedId);
+      return NextResponse.json(
+        { error: "Not found", message: "This audit report does not exist or has expired." },
+        { status: 404 }
+      );
     }
 
     const htmlContent = generateAuditPdfHtml(report);

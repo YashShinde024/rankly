@@ -1,7 +1,16 @@
 import { Navbar } from "@/components/navbar/navbar";
 import { Footer } from "@/components/footer/footer";
+import { Reveal } from "@/components/ui/reveal";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "How Rankly Works — SEO, AEO & GEO Analysis Pipeline",
+  description:
+    "See exactly how Rankly fetches, inspects, scores, and interprets your website across search, answer engine, and generative AI signals — deterministic checks first, AI interpretation second.",
+  alternates: { canonical: "/how-it-works" },
+};
 
 export default function HowItWorksPage() {
   const steps = [
@@ -74,19 +83,64 @@ export default function HowItWorksPage() {
 
           {/* Stepped Timeline */}
           <div className="mt-16 divide-y divide-[#EFEFEA]">
-            {steps.map((step) => (
-              <div key={step.num} className="py-8 grid grid-cols-1 md:grid-cols-12 gap-6 items-baseline">
-                <div className="md:col-span-2 font-mono text-xs text-[#66666E]">
-                  Phase {step.num}
+            {steps.map((step, i) => (
+              <Reveal key={step.num} delay={i * 0.03}>
+                <div className="py-8 grid grid-cols-1 md:grid-cols-12 gap-6 items-baseline">
+                  <div className="md:col-span-2 font-mono text-xs text-[#66666E]">
+                    Phase {step.num}
+                  </div>
+                  <div className="md:col-span-4 text-base font-medium text-[#121214]">
+                    {step.title}
+                  </div>
+                  <div className="md:col-span-6 text-xs text-[#66666E] leading-relaxed">
+                    {step.desc}
+                  </div>
                 </div>
-                <div className="md:col-span-4 text-base font-medium text-[#121214]">
-                  {step.title}
+              </Reveal>
+            ))}
+          </div>
+
+          {/* Deterministic vs AI-assisted distinction */}
+          <div className="mt-16 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Reveal>
+              <div className="h-full border border-[#EFEFEA] bg-white p-6 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-mono text-xs uppercase tracking-widest text-[#121214] font-semibold">
+                    Deterministic Analysis
+                  </h3>
+                  <span className="font-mono text-[10px] text-emerald-700">Evidence-based</span>
                 </div>
-                <div className="md:col-span-6 text-xs text-[#66666E] leading-relaxed">
-                  {step.desc}
+                <p className="text-xs text-[#66666E] leading-relaxed">
+                  Every score starts here. Real HTTP headers, parsed HTML, robots directives, and
+                  structured data are checked against explicit rules. A finding exists only if the
+                  evidence exists on the page.
+                </p>
+                <p className="text-[11px] font-mono text-[#8C8C94]">
+                  22+ checks · Weighted category scoring · No randomness
+                </p>
+              </div>
+            </Reveal>
+
+            <Reveal delay={0.08}>
+              <div className="relative h-full p-[1.5px] spectrum-border-subtle">
+                <div className="h-full bg-white p-6 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-mono text-xs uppercase tracking-widest text-violet-800 font-semibold">
+                      AI-Assisted Interpretation
+                    </h3>
+                    <span className="font-mono text-[10px] text-violet-700">Explain &amp; prioritize</span>
+                  </div>
+                  <p className="text-xs text-[#66666E] leading-relaxed">
+                    Gemini never invents findings or inflates scores. It receives the deterministic
+                    results and translates them into root-cause explanations, prioritized next
+                    steps, and copy-paste fixes.
+                  </p>
+                  <p className="text-[11px] font-mono text-[#8C8C94]">
+                    Falls back to deterministic insights if unavailable · Always labeled in reports
+                  </p>
                 </div>
               </div>
-            ))}
+            </Reveal>
           </div>
 
           {/* Bottom Action */}

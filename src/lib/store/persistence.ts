@@ -9,9 +9,21 @@ export interface DomainCooldownRecord {
   timestamp: number;
 }
 
+/** Raised when an audit could not be durably persisted (production correctness). */
+export class PersistenceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PersistenceError";
+  }
+}
+
+// --- Retention configuration ---
+const AUDIT_TTL_MS = 30 * 24 * 60 * 60 * 1000; // AUDIT_TTL_DAYS = 30
+const MAX_PUBLIC_AUDITS = 500;
+
 export function normalizeAuditId(id: string): string {
   if (!id) return "";
-  let clean = decodeURIComponent(id).trim();
+  const clean = decodeURIComponent(id).trim();
   // If it's a domain name, keep lowercase
   if (clean.includes(".")) {
     return extractCanonicalHostname(clean);
@@ -35,17 +47,21 @@ export class AuditPersistenceEngine {
   private memoryCache = new Map<string, SeoAuditReport>();
   private memoryCooldowns = new Map<string, DomainCooldownRecord>();
   private memoryRecent: ExploreAuditRecord[] = [];
-  private readonly maxRecent = 50;
+  private readonly maxRecent = MAX_PUBLIC_AUDITS;
+  /** Dedupes identical Blob writes within this warm instance. */
+  private lastWriteFingerprint = new Map<string, string>();
   private storageDir: string;
   private isServerless: boolean;
+  private hasBlobStorage: boolean;
 
   constructor(customStorageDir?: string) {
     this.isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    this.hasBlobStorage = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 
-    // In serverless / Vercel, /tmp is available for local caching; in regular node/dev, use ./.data
+    // Local development uses the filesystem; serverless /tmp is best-effort cache only.
     if (customStorageDir) {
       this.storageDir = customStorageDir;
-    } else if (process.env.STORAGE_PATH) {
+    } else if (process.env.STORAGE_PATH && !this.isServerless) {
       this.storageDir = process.env.STORAGE_PATH;
     } else if (this.isServerless) {
       this.storageDir = path.join("/tmp", "rankly-data");
@@ -53,10 +69,16 @@ export class AuditPersistenceEngine {
       this.storageDir = path.join(process.cwd(), ".data");
     }
 
-    // Preload demo audit into memory
     this.preloadDemo();
-    // Attempt local storage directory creation if in Node environment
     this.ensureStorageDir();
+  }
+
+  /**
+   * Whether a durable storage layer (Vercel Blob in production) backs this engine.
+   * When false, only local-dev filesystem durability exists.
+   */
+  public get isDurable(): boolean {
+    return this.hasBlobStorage || (!this.isServerless && typeof fs !== "undefined");
   }
 
   private preloadDemo(): void {
@@ -78,7 +100,7 @@ export class AuditPersistenceEngine {
     }
   }
 
-  // --- KV / REST API CONFIGURATION ---
+  // --- KV / REST API CONFIGURATION (optional replication layer) ---
   private getKvConfig(): { url: string; token: string } | null {
     const url =
       process.env.KV_REST_API_URL ||
@@ -95,7 +117,7 @@ export class AuditPersistenceEngine {
     return null;
   }
 
-  private async kvCommand<T = any>(command: string, ...args: (string | number)[]): Promise<T | null> {
+  private async kvCommand<T = unknown>(command: string, ...args: (string | number)[]): Promise<T | null> {
     const config = this.getKvConfig();
     if (!config) return null;
 
@@ -116,12 +138,7 @@ export class AuditPersistenceEngine {
     }
   }
 
-  // --- FILE STORAGE HELPERS ---
-  private getFilePath(filename: string): string {
-    return path.join(this.storageDir, filename);
-  }
-
-  // --- VERCEL BLOB STORAGE (durable, no external service needed) ---
+  // --- VERCEL BLOB STORAGE — authoritative production layer ---
   private getBlobToken(): string | undefined {
     return process.env.BLOB_READ_WRITE_TOKEN;
   }
@@ -131,7 +148,7 @@ export class AuditPersistenceEngine {
     if (!token) return false;
     try {
       const { put } = await import("@vercel/blob");
-      await put(`rankly/${filename}`, data, { access: "public", token });
+      await put(`rankly/${filename}`, data, { access: "public", token, addRandomSuffix: false });
       return true;
     } catch (err) {
       console.warn("[AuditPersistenceEngine] Blob write warning:", err);
@@ -149,19 +166,81 @@ export class AuditPersistenceEngine {
       if (!res.ok) return null;
       return (await res.json()) as T;
     } catch {
-      // Blob does not exist or is unreachable — fall back to other layers
       return null;
     }
+  }
+
+  private async blobDelete(filename: string): Promise<void> {
+    const token = this.getBlobToken();
+    if (!token) return;
+    try {
+      const { head, del } = await import("@vercel/blob");
+      const meta = await head(`rankly/${filename}`);
+      await del(meta.url, { token });
+    } catch {
+      // Already gone or unreachable — retention is best-effort cleanup
+    }
+  }
+
+  /**
+   * Opportunistic TTL enforcement over stored blobs using uploadedAt metadata.
+   * Runs at most once per warm instance and never blocks the request path on failure.
+   */
+  private blobRetentionSweepRunning = false;
+  private async runBlobRetentionSweep(): Promise<void> {
+    const token = this.getBlobToken();
+    if (!token || this.blobRetentionSweepRunning) return;
+    this.blobRetentionSweepRunning = true;
+    try {
+      const { list } = await import("@vercel/blob");
+      const cutoff = Date.now() - AUDIT_TTL_MS;
+      let cursor: string | undefined;
+      do {
+        const result = await list({ prefix: "rankly/", token, cursor, limit: 100 });
+        const expired = result.blobs.filter(
+          (b) => b.pathname.startsWith("rankly/audit_") && new Date(b.uploadedAt).getTime() < cutoff
+        );
+        if (expired.length > 0) {
+          const { del } = await import("@vercel/blob");
+          await del(expired.map((b) => b.url), { token }).catch(() => {});
+        }
+        cursor = result.cursor;
+      } while (cursor);
+    } catch {
+      // Best-effort housekeeping
+    } finally {
+      this.blobRetentionSweepRunning = false;
+    }
+  }
+
+  // --- FILE STORAGE HELPERS (local development / ephemeral cache) ---
+  private getFilePath(filename: string): string {
+    return path.join(this.storageDir, filename);
+  }
+
+  private fingerprint(data: unknown): string {
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return String(Date.now());
+    }
+  }
+
+  private isDuplicateWrite(filename: string, data: unknown): boolean {
+    const fp = this.fingerprint(data);
+    if (this.lastWriteFingerprint.get(filename) === fp) return true;
+    this.lastWriteFingerprint.set(filename, fp);
+    return false;
   }
 
   private async readJsonFile<T>(filename: string): Promise<T | null> {
     if (typeof window !== "undefined" || !fs.promises) return null;
 
-    // 1. Durable Vercel Blob storage when configured
+    // 1. Authoritative Vercel Blob storage (production)
     const fromBlob = await this.blobGetJson<T>(filename);
     if (fromBlob) return fromBlob;
 
-    // 2. Local disk / serverless /tmp
+    // 2. Local filesystem (development) or /tmp best-effort cache
     try {
       const filePath = this.getFilePath(filename);
       const data = await fs.promises.readFile(filePath, "utf-8");
@@ -171,22 +250,46 @@ export class AuditPersistenceEngine {
     }
   }
 
+  /**
+   * Writes JSON to durable storage. Returns true ONLY if a durable write succeeded:
+   * - Production: Vercel Blob
+   * - Local dev: project .data directory
+   * Serverless /tmp alone does NOT count as durable.
+   */
   private async writeJsonFile<T>(filename: string, data: T): Promise<boolean> {
     if (typeof window !== "undefined" || !fs.promises) return false;
+    if (this.isDuplicateWrite(filename, data)) return true;
 
-    // 1. Durable Vercel Blob storage when configured
-    const blobWritten = await this.blobPut(filename, JSON.stringify(data));
-    if (blobWritten) return true;
+    // 1. Durable Vercel Blob storage (production source of truth)
+    const serialized = JSON.stringify(data);
+    const blobWritten = await this.blobPut(filename, serialized);
 
-    // 2. Local disk / serverless /tmp
+    // 2. Filesystem mirror (local dev durability + serverless read cache)
+    let fileWritten = false;
     try {
       this.ensureStorageDir();
       const filePath = this.getFilePath(filename);
       await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), "utf-8");
-      return true;
+      fileWritten = true;
     } catch {
-      return false;
+      fileWritten = false;
     }
+
+    if (blobWritten) return true;
+    if (this.hasBlobStorage) return false; // Blob configured but write failed → not durable
+    // No Blob configured: local filesystem is durable only outside serverless
+    return !this.isServerless && fileWritten;
+  }
+
+  // --- RETENTION ---
+  private enforceRetention(recent: ExploreAuditRecord[]): { kept: ExploreAuditRecord[]; removedIds: string[] } {
+    const cutoff = Date.now() - AUDIT_TTL_MS;
+    const fresh = recent.filter((r) => r.timestamp >= cutoff);
+    const capped = fresh.slice(0, MAX_PUBLIC_AUDITS); // newest-first list
+    const removedIds = recent
+      .filter((r) => !capped.some((k) => k.id === r.id))
+      .map((r) => normalizeAuditId(r.id));
+    return { kept: capped, removedIds };
   }
 
   // --- AUDIT OPERATIONS ---
@@ -195,13 +298,13 @@ export class AuditPersistenceEngine {
     const normalizedId = normalizeAuditId(report.id);
     const canonicalDomain = extractCanonicalHostname(report.domain);
 
-    // 1. Update L1 In-Memory Cache
+    // 1. Update L1 In-Memory Cache (optimization only)
     this.memoryCache.set(normalizedId, report);
     this.memoryCache.set(normalizedId.toLowerCase(), report);
     this.memoryCache.set(canonicalDomain, report);
     this.memoryCache.set(report.domain.toLowerCase(), report);
 
-    // 2. Add to Recent / Explore list
+    // 2. Add to Recent / Explore list with retention applied
     const exploreRecord: ExploreAuditRecord = {
       id: report.id,
       domain: canonicalDomain,
@@ -223,33 +326,43 @@ export class AuditPersistenceEngine {
     };
     this.addToMemoryRecent(exploreRecord);
 
-    // 3. Save to KV if configured
+    // 3. Optional KV replication (extra resilience when configured)
     const kv = this.getKvConfig();
     if (kv) {
       try {
         const payload = JSON.stringify(report);
-        // Store under audit ID (e.g. audit:RKL-84AD35) with 30-day TTL (2592000s)
         await this.kvCommand("set", `audit:${normalizedId}`, payload, "ex", 2592000);
         await this.kvCommand("set", `audit:domain:${canonicalDomain}`, normalizedId, "ex", 2592000);
-        // Save to recent list
         const recentList = await this.getRecentAudits();
         await this.kvCommand("set", "rankly:recent_audits", JSON.stringify(recentList));
       } catch (err) {
-        console.warn("[AuditPersistenceEngine] KV write warning:", err);
+        console.warn("[AuditPersistenceEngine] KV replication warning:", err);
       }
     }
 
-    // 4. Save to File Storage (Local disk or serverless /tmp)
-    try {
-      await this.writeJsonFile(`audit_${normalizedId}.json`, report);
-      if (canonicalDomain) {
-        await this.writeJsonFile(`domain_${canonicalDomain}.json`, { auditId: normalizedId });
-      }
-      const allRecent = await this.getRecentAudits();
-      await this.writeJsonFile("recent_audits.json", allRecent);
-    } catch {
-      // Ignore file storage errors if in strictly read-only environment
+    // 4. Durable persistence — failures must propagate so the API can reject the audit
+    const auditPayload = JSON.stringify(report);
+    const auditWritten = await this.writeJsonFileRaw(`audit_${normalizedId}.json`, auditPayload);
+    const domainWritten = canonicalDomain
+      ? await this.writeJsonFile(`domain_${canonicalDomain}.json`, { auditId: normalizedId })
+      : true;
+    const allRecent = await this.getRecentAudits();
+    const recentWritten = await this.writeJsonFile("recent_audits.json", allRecent);
+
+    if (!auditWritten || !recentWritten || !domainWritten) {
+      throw new PersistenceError(
+        `Failed to persist audit ${normalizedId} to durable storage (Blob configured=${this.hasBlobStorage}).`
+      );
     }
+
+    // 5. Housekeeping: delete expired blobs (best-effort, non-blocking semantics)
+    void this.runBlobRetentionSweep();
+  }
+
+  private async writeJsonFileRaw(filename: string, serialized: string): Promise<boolean> {
+    if (typeof window !== "undefined" || !fs.promises) return false;
+    const parsed = JSON.parse(serialized);
+    return this.writeJsonFile(filename, parsed);
   }
 
   public async getAudit(idOrDomain: string): Promise<SeoAuditReport | null> {
@@ -263,7 +376,7 @@ export class AuditPersistenceEngine {
     const normalizedId = normalizeAuditId(cleanKey);
     const canonicalKey = extractCanonicalHostname(cleanKey);
 
-    // 1. Check L1 Memory Cache
+    // 1. Check L1 Memory Cache (read optimization only)
     if (this.memoryCache.has(normalizedId)) {
       return this.memoryCache.get(normalizedId)!;
     }
@@ -274,7 +387,7 @@ export class AuditPersistenceEngine {
       return this.memoryCache.get(canonicalKey)!;
     }
 
-    // 2. Check KV Store
+    // 2. Check optional KV replica
     const kv = this.getKvConfig();
     if (kv) {
       try {
@@ -287,7 +400,6 @@ export class AuditPersistenceEngine {
         }
         if (auditRaw) {
           const report: SeoAuditReport = typeof auditRaw === "string" ? JSON.parse(auditRaw) : auditRaw;
-          // Populate L1 cache
           this.memoryCache.set(report.id, report);
           this.memoryCache.set(normalizedId, report);
           if (report.domain) {
@@ -300,7 +412,7 @@ export class AuditPersistenceEngine {
       }
     }
 
-    // 3. Check File Storage
+    // 3. Check durable storage (Blob first, then filesystem mirror)
     try {
       let report = await this.readJsonFile<SeoAuditReport>(`audit_${normalizedId}.json`);
       if (!report && canonicalKey) {
@@ -316,7 +428,7 @@ export class AuditPersistenceEngine {
         return report;
       }
     } catch {
-      // Fallback
+      // Fall through to not-found
     }
 
     return null;
@@ -326,7 +438,7 @@ export class AuditPersistenceEngine {
   public async getRecentAudits(): Promise<ExploreAuditRecord[]> {
     const now = Date.now();
 
-    // 1. Try KV
+    // 1. Try optional KV replica
     const kv = this.getKvConfig();
     if (kv) {
       try {
@@ -338,19 +450,22 @@ export class AuditPersistenceEngine {
           }
         }
       } catch {
-        // Fall back to memory/file
+        // Fall back to memory/durable storage
       }
     }
 
-    // 2. Try File Storage if memory is empty
+    // 2. Read from durable storage if memory is empty
     if (this.memoryRecent.length === 0) {
-      const fileRecent = await this.readJsonFile<ExploreAuditRecord[]>("recent_audits.json");
-      if (fileRecent && Array.isArray(fileRecent)) {
-        this.memoryRecent = fileRecent;
+      const persisted = await this.readJsonFile<ExploreAuditRecord[]>("recent_audits.json");
+      if (persisted && Array.isArray(persisted)) {
+        this.memoryRecent = persisted;
       }
     }
 
-    // 3. Format relative timeAgo
+    // 3. Apply retention & format relative timestamps
+    const { kept } = this.enforceRetention(this.memoryRecent);
+    this.memoryRecent = kept;
+
     return this.memoryRecent.map((item) => {
       const diffMinutes = Math.floor((now - item.timestamp) / 60000);
       let timeAgo = "just now";
@@ -382,10 +497,10 @@ export class AuditPersistenceEngine {
     const canonical = extractCanonicalHostname(domain);
     const record: DomainCooldownRecord = { auditId, timestamp };
 
-    // 1. Memory
+    // 1. Memory cache
     this.memoryCooldowns.set(canonical, record);
 
-    // 2. KV (7-day TTL = 604800s)
+    // 2. Optional KV replica (7-day TTL = 604800s)
     const kv = this.getKvConfig();
     if (kv) {
       try {
@@ -395,23 +510,19 @@ export class AuditPersistenceEngine {
       }
     }
 
-    // 3. File
-    try {
-      await this.writeJsonFile(`cooldown_${canonical}.json`, record);
-    } catch {
-      // ignore
-    }
+    // 3. Durable storage (Blob in production)
+    await this.writeJsonFile(`cooldown_${canonical}.json`, record);
   }
 
   public async getDomainCooldown(domain: string): Promise<DomainCooldownRecord | null> {
     const canonical = extractCanonicalHostname(domain);
 
-    // 1. Memory
+    // 1. Memory cache
     if (this.memoryCooldowns.has(canonical)) {
       return this.memoryCooldowns.get(canonical)!;
     }
 
-    // 2. KV
+    // 2. Optional KV replica
     const kv = this.getKvConfig();
     if (kv) {
       try {
@@ -426,7 +537,7 @@ export class AuditPersistenceEngine {
       }
     }
 
-    // 3. File
+    // 3. Durable storage
     try {
       const fileRec = await this.readJsonFile<DomainCooldownRecord>(`cooldown_${canonical}.json`);
       if (fileRec) {
@@ -444,6 +555,7 @@ export class AuditPersistenceEngine {
     this.memoryCache.clear();
     this.memoryCooldowns.clear();
     this.memoryRecent = [];
+    this.lastWriteFingerprint.clear();
     this.preloadDemo();
 
     if (typeof window === "undefined" && typeof fs !== "undefined" && fs.promises) {
@@ -466,4 +578,4 @@ if (!globalForPersistence.__auditPersistenceEngine) {
   globalForPersistence.__auditPersistenceEngine = new AuditPersistenceEngine();
 }
 
-export const persistenceEngine: AuditPersistenceEngine = globalForPersistence.__auditPersistenceEngine;
+export const persistenceEngine = globalForPersistence.__auditPersistenceEngine;
