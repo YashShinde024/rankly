@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auditStore, normalizeAuditId } from "@/lib/store/audit-store";
+import { getAdminDb, verifyAuthToken } from "@/lib/firebase/admin";
+import { getAuditFromFirestore } from "@/lib/firebase/firestore-repo";
 import { generateAuditPdfHtml } from "@/lib/pdf/generate-pdf";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +19,29 @@ export async function GET(
     const decodedId = decodeURIComponent(id);
     const normalizedId = normalizeAuditId(decodedId);
 
-    const report = await auditStore.get(normalizedId);
+    let report = null as Awaited<ReturnType<typeof auditStore.get>>;
+
+    const db = getAdminDb();
+    if (db) {
+      const record = await getAuditFromFirestore(normalizedId).catch(() => null);
+      if (record) {
+        // Private audits are exportable only by their owner.
+        if (record.visibility === "private" && record.userId) {
+          const viewer = await verifyAuthToken(req.headers.get("authorization"));
+          if (viewer?.uid !== record.userId) {
+            return NextResponse.json(
+              { error: "Not found", message: "This audit report is private or does not exist." },
+              { status: 404 }
+            );
+          }
+        }
+        report = record.report;
+      }
+    }
+
+    if (!report) {
+      report = await auditStore.get(normalizedId);
+    }
     if (!report) {
       return NextResponse.json(
         { error: "Not found", message: "This audit report does not exist or has expired." },

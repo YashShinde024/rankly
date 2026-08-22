@@ -274,14 +274,14 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
   /* ---------------------------------------------------------------- */
 
   const stepMotion = {
-    initial: { opacity: 0, y: reduceMotion ? 0 : 16 },
+    initial: { opacity: 0, y: reduceMotion ? 0 : 14 },
     animate: { opacity: 1, y: 0 },
-    exit: { opacity: 0, y: reduceMotion ? 0 : -12 },
-    transition: { duration: dur(0.28), ease: "easeOut" as const },
+    exit: { opacity: 0, y: reduceMotion ? 0 : -10 },
+    transition: { duration: dur(0.2), ease: "easeOut" as const },
   };
 
   const radioCard = (selected: boolean) =>
-    `group relative text-left border transition-all duration-200 cursor-pointer outline-none
+    `group relative text-left border transition-[border-color,box-shadow] duration-200 cursor-pointer outline-none
      focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8B5CF6]
      ${
        selected
@@ -302,10 +302,11 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
             {i > 0 && (
               <div className="mx-3 h-px w-10 xl:w-14 bg-[#E7E7E2] relative overflow-hidden" aria-hidden="true">
                 <motion.div
-                  className="absolute inset-y-0 left-0 spectrum-border"
+                  className="absolute inset-y-0 left-0 right-0 spectrum-line"
+                  style={{ transformOrigin: "left" }}
                   initial={false}
-                  animate={{ width: step > i ? "100%" : "0%" }}
-                  transition={{ duration: dur(0.4), ease: "easeOut" }}
+                  animate={{ scaleX: step > i ? 1 : 0 }}
+                  transition={{ duration: dur(0.3), ease: "easeOut" }}
                 />
               </div>
             )}
@@ -363,14 +364,15 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
         {STEPS.slice(0, 4).map((s, i) => (
           <div key={s.n} className="h-[3px] flex-1 bg-[#EFEFEA] overflow-hidden">
             <motion.div
-              className="h-full spectrum-border"
+              className="h-full w-full spectrum-line"
+              style={{ transformOrigin: "left" }}
               initial={false}
-              animate={{ width: step > i + 1 ? "100%" : step === i + 1 ? "55%" : "0%" }}
-              transition={{ duration: dur(0.35), ease: "easeOut" }}
+              animate={{ scaleX: step > i + 1 ? 1 : step === i + 1 ? 0.55 : 0 }}
+              transition={{ duration: dur(0.3), ease: "easeOut" }}
             />
           </div>
         ))}
-        {isReadyStep && <div className="h-[3px] flex-1 spectrum-border" />}
+        {isReadyStep && <div className="h-[3px] flex-1 spectrum-line" />}
       </div>
       <span className="font-mono text-[10px] uppercase tracking-wider text-[#121214] truncate">
         {STEPS[Math.min(step, 5) - 1].label}
@@ -388,7 +390,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
       <span className="font-mono text-[10px] uppercase tracking-widest text-[#121214] block">
         Report configuration
       </span>
-      <div className="h-px w-8 spectrum-border opacity-70" aria-hidden="true" />
+      <div className="h-px w-8 spectrum-line opacity-70" aria-hidden="true" />
       <dl className="space-y-3.5">
         {configRows.map((row) => (
           <div key={row.label}>
@@ -460,7 +462,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
         </label>
         <div
           className={`relative p-[1.5px] transition-all duration-300 ${
-            nameFocused ? "spectrum-border shadow-[0_0_0_4px_rgba(139,92,246,0.06)]" : "bg-[#EFEFEA]"
+            nameFocused ? "spectrum-line shadow-[0_0_0_4px_rgba(139,92,246,0.06)]" : "bg-[#EFEFEA]"
           }`}
         >
           <div className="bg-white flex items-center px-4 py-3 gap-3">
@@ -511,7 +513,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
           ].map((c) => (
             <div
               key={c.abbr}
-              className="border border-[#EFEFEA] bg-white p-4 space-y-1.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#D4D4D0] hover:shadow-[0_4px_14px_rgba(18,18,20,0.06)]"
+              className="border border-[#EFEFEA] bg-white p-4 space-y-1.5 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[#D4D4D0] hover:shadow-[0_4px_14px_rgba(18,18,20,0.06)]"
             >
               <div className="flex items-center gap-1.5">
                 <c.Icon className="h-3.5 w-3.5 text-[#121214]" aria-hidden="true" />
@@ -578,7 +580,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
               {isSelected && (
                 <span
                   aria-hidden="true"
-                  className="absolute bottom-0 left-0 right-0 h-[2px] spectrum-border opacity-80"
+                  className="absolute bottom-0 left-0 right-0 h-[2px] spectrum-line opacity-80"
                 />
               )}
             </button>
@@ -611,11 +613,11 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
           Website address
         </label>
         <div
-          className={`relative p-[1.5px] transition-all duration-300 ${
+          className={`relative p-[1.5px] transition-shadow duration-300 ${
             urlState === "invalid" && urlTouched
               ? "bg-rose-400 shadow-[0_0_0_4px_rgba(244,63,94,0.06)]"
               : urlFocused
-                ? "spectrum-border shadow-[0_0_0_4px_rgba(139,92,246,0.06)]"
+                ? "spectrum-line shadow-[0_0_0_4px_rgba(139,92,246,0.06)]"
                 : "bg-[#EFEFEA]"
           }`}
         >
@@ -774,7 +776,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
                 {isSelected && (
                   <span
                     aria-hidden="true"
-                    className="absolute bottom-0 left-0 right-0 h-[2px] spectrum-border opacity-80"
+                    className="absolute bottom-0 left-0 right-0 h-[2px] spectrum-line opacity-80"
                   />
                 )}
               </button>
@@ -983,7 +985,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
 
   const footerControls = (
     <div
-      className="sticky bottom-0 lg:static flex items-center justify-between gap-4 border-t border-[#EFEFEA] pt-4 pb-1 lg:pb-0 lg:pt-6 mt-auto bg-white/90 lg:bg-transparent backdrop-blur-sm lg:backdrop-blur-none -mx-5 sm:-mx-8 lg:mx-0 px-5 sm:px-8 lg:px-0"
+      className="sticky bottom-0 lg:static flex items-center justify-between gap-4 border-t border-[#EFEFEA] pt-4 pb-1 lg:pb-0 lg:pt-6 mt-auto bg-white lg:bg-transparent -mx-5 sm:-mx-8 lg:mx-0 px-5 sm:px-8 lg:px-0"
     >
       <div className="flex items-center gap-4">
         {step > 1 && !isSubmitting ? (
@@ -1041,14 +1043,14 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
     <div className="relative">
       {/* Panel */}
       <div
-        className={`mx-auto w-full transition-[max-width] duration-300 ease-out ${
+        className={`mx-auto w-full ${
           step === 1 ? "max-w-3xl" : "max-w-[1080px]"
         }`}
       >
         <div className="relative bg-white border border-[#EFEFEA] shadow-[0_1px_2px_rgba(18,18,20,0.04),0_16px_48px_-16px_rgba(18,18,20,0.10)] flex flex-col min-h-[560px] sm:min-h-[600px]">
           {/* Spectral top hairline */}
           <div aria-hidden="true" className="absolute top-0 left-0 right-0 h-[2px] overflow-hidden">
-            <div className="h-full w-full spectrum-border-subtle opacity-70" />
+            <div className="h-full w-full spectrum-line opacity-70" />
           </div>
 
           {/* Header */}

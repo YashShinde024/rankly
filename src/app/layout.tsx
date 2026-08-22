@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ScrollProgress } from "@/components/ui/scroll-progress";
+import { AuthProvider } from "@/components/auth/auth-provider";
 
 export const SITE_URL = "https://rankly.nyxen.in";
 
@@ -113,9 +114,12 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
-      </head>      <body className="min-h-full flex flex-col bg-[#FBFBFA] text-[#121214]">
-        <ScrollProgress />
-        {children}
+      </head>
+      <body className="min-h-full flex flex-col bg-[#FBFBFA] text-[#121214]">
+        <AuthProvider>
+          <ScrollProgress />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

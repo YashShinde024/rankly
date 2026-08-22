@@ -42,3 +42,9 @@ next-env.d.ts
 
 # local persistent storage
 .data/
+
+# firebase service account credentials — never commit
+serviceAccount*.json
+firebase-service-account*.json
+*serviceAccountKey*.json
+firestore-service-account*/

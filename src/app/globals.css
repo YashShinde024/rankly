@@ -79,6 +79,11 @@
 }
 
 .spectrum-badge {
+
+/* Static spectrum line — zero animation cost, for hairlines, edges, connectors */
+.spectrum-line {
+  background: linear-gradient(90deg, #3B82F6, #8B5CF6, #EC4899);
+}
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%);
   border-color: rgba(139, 92, 246, 0.25);
   color: #6D28D9;

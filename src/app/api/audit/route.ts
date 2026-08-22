@@ -7,6 +7,20 @@ import { analyzeSeo } from "@/lib/seo/analyzer";
 import { calculateIntelligenceScores } from "@/lib/seo/scorer";
 import { analyzeWithGemini } from "@/lib/ai/gemini";
 import { auditStore, normalizeAuditId } from "@/lib/store/audit-store";
+import {
+  getAdminDb,
+  verifyAuthToken,
+} from "@/lib/firebase/admin";
+import {
+  saveAuditToFirestore,
+  getAuditFromFirestore,
+  recordDomainAuditInFirestore,
+  getDomainCooldown,
+  isGuestAuditUsed,
+  markGuestAuditUsed,
+} from "@/lib/firebase/firestore-repo";
+import { attachGuestCookie, readGuestId, createGuestId } from "@/lib/auth/guest";
+import type { AuditVisibility } from "@/lib/firebase/firestore-repo";
 import { detectPageType } from "@/lib/seo/page-classifier";
 import { SeoAuditReport } from "@/types/audit";
 
@@ -56,7 +70,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { url } = body;
+  const { url, websiteType, goals } = body;
   if (!url || typeof url !== "string") {
     return NextResponse.json(
       { success: false, stage: "VALIDATING", error: "MISSING_URL", message: "Enter a valid public website URL." },
@@ -74,14 +88,59 @@ export async function POST(req: NextRequest) {
   }
 
   const canonicalHostname = validation.domain;
+  const db = getAdminDb();
 
-  // 4. Strict 7-Day Server-Side Domain Cooldown Enforcement
-  // Check the persistent audit store before consuming crawler or AI resources.
-  const domainCheck = await antiAbuse.checkDomainCooldown(canonicalHostname);
+  // 4. Authentication context (optional — guests are supported)
+  const authCtx = await verifyAuthToken(req.headers.get("authorization"));
+
+  // 4b. Resolve guest identity (signed httpOnly cookie) for unauthenticated users
+  let guestId: string | null = null;
+  if (!authCtx && db) {
+    guestId = readGuestId(req) ?? createGuestId();
+  }
+
+  // 5. Strict 7-Day Server-Side Domain Cooldown Enforcement
+  // Returning an EXISTING public report is never a new audit — allowed for everyone.
+  let domainCheck = await antiAbuse.checkDomainCooldown(canonicalHostname);
+  if (db) {
+    const fsCooldown = await getDomainCooldown(canonicalHostname).catch(() => null);
+    const nowMs = Date.now();
+    if (fsCooldown && fsCooldown.latestAuditId && fsCooldown.lastAuditAtMs > 0) {
+      const elapsed = nowMs - fsCooldown.lastAuditAtMs;
+      if (elapsed < 7 * 24 * 60 * 60 * 1000) {
+        const remainingSec = Math.ceil((7 * 24 * 60 * 60 * 1000 - elapsed) / 1000);
+        domainCheck = {
+          allowed: false,
+          cooldownActive: true,
+          existingAuditId: fsCooldown.latestAuditId,
+          cooldownRemainingSeconds: remainingSec,
+          nextAllowedDate: new Date(fsCooldown.nextAllowedAtMs).toLocaleDateString("en-US", {
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          }),
+        };
+      } else {
+        domainCheck = { allowed: true, cooldownActive: false, cooldownRemainingSeconds: 0 };
+      }
+    }
+  }
+
   if (!domainCheck.allowed && domainCheck.existingAuditId) {
-    const existingReport = await auditStore.get(domainCheck.existingAuditId);
+    // Visibility check for the cached report before returning it
+    let existingReport: SeoAuditReport | null | undefined = await auditStore.get(domainCheck.existingAuditId);
+    if (db) {
+      const fsReport = await getAuditFromFirestore(domainCheck.existingAuditId).catch(() => null);
+      if (fsReport) {
+        if (fsReport.visibility === "private" && fsReport.userId !== authCtx?.uid) {
+          existingReport = null;
+        } else {
+          existingReport = fsReport.report;
+        }
+      }
+    }
     if (existingReport) {
-      return NextResponse.json(
+      const res = NextResponse.json(
         {
           success: true,
           stage: "DOMAIN_COOLDOWN",
@@ -96,6 +155,29 @@ export async function POST(req: NextRequest) {
         },
         { status: 409 }
       );
+      if (guestId) attachGuestCookie(res, guestId);
+      return res;
+    }
+  }
+
+  // 6. Guest usage limit — exactly ONE successful audit per guest.
+  // Checked only when we're about to run a NEW analysis; failures/cooldown
+  // returns above never consume or block the free audit.
+  if (!authCtx && guestId && db) {
+    const used = await isGuestAuditUsed(guestId).catch(() => false);
+    if (used) {
+      const res = NextResponse.json(
+        {
+          success: false,
+          stage: "AUTH_REQUIRED",
+          error: "GUEST_LIMIT_REACHED",
+          message:
+            "You've used your free report. Create a free Rankly account to continue analyzing websites and keep your reports in one place.",
+        },
+        { status: 403 }
+      );
+      attachGuestCookie(res, guestId);
+      return res;
     }
   }
 
@@ -258,13 +340,28 @@ export async function POST(req: NextRequest) {
 
     // 14. Persist to durable storage & record 7-day cooldown.
     // Persistence failure must fail the request — never return a success + dead link.
+    // Firestore is the authoritative store; the legacy engine is a fallback when
+    // Firebase is not configured. The guest audit is consumed ONLY after a
+    // successful, verified save.
     currentStage = "SAVING_REPORT";
+    const visibility: AuditVisibility = "public"; // product default; private is owner-opt-in later
     try {
-      await auditStore.set(report);
-      await antiAbuse.recordDomainAudit(canonicalHostname, auditId);
+      if (db) {
+        await saveAuditToFirestore(report, {
+          userId: authCtx?.uid ?? null,
+          guestId: authCtx ? null : guestId,
+          visibility,
+          websiteType: typeof websiteType === "string" ? websiteType : "saas",
+          analysisType: typeof goals === "string" ? goals : "all",
+        });
+        await recordDomainAuditInFirestore(canonicalHostname, auditId, now);
+      } else {
+        await auditStore.set(report);
+        await antiAbuse.recordDomainAudit(canonicalHostname, auditId);
+      }
     } catch (persistErr) {
       console.error(`[POST /api/audit] Durable persistence failed for ${auditId}:`, persistErr);
-      return NextResponse.json(
+      const failRes = NextResponse.json(
         {
           success: false,
           stage: "SAVING_REPORT",
@@ -274,13 +371,21 @@ export async function POST(req: NextRequest) {
         },
         { status: 503 }
       );
+      if (guestId) attachGuestCookie(failRes, guestId);
+      return failRes;
     }
 
     // 15. Read the exact report back from durable storage before responding.
-    const saved = await auditStore.get(auditId);
+    let saved: SeoAuditReport | null = null;
+    if (db) {
+      const fsSaved = await getAuditFromFirestore(auditId).catch(() => null);
+      saved = fsSaved?.report ?? null;
+    } else {
+      saved = await auditStore.get(auditId);
+    }
     if (!saved || saved.overallScore !== report.overallScore) {
       console.error(`[POST /api/audit] Persistence verification failed for ${auditId}`);
-      return NextResponse.json(
+      const verifyRes = NextResponse.json(
         {
           success: false,
           stage: "SAVING_REPORT",
@@ -290,10 +395,19 @@ export async function POST(req: NextRequest) {
         },
         { status: 503 }
       );
+      if (guestId) attachGuestCookie(verifyRes, guestId);
+      return verifyRes;
+    }
+
+    // 16. Success — only now consume the guest's free audit (server-side record).
+    if (guestId && db) {
+      await markGuestAuditUsed(guestId, auditId, null).catch((e) =>
+        console.warn("[POST /api/audit] Guest usage marking failed:", e)
+      );
     }
 
     currentStage = "COMPLETE";
-    return NextResponse.json(
+    const successRes = NextResponse.json(
       {
         success: true,
         stage: "COMPLETE",
@@ -302,6 +416,8 @@ export async function POST(req: NextRequest) {
       },
       { status: 200 }
     );
+    if (guestId) attachGuestCookie(successRes, guestId);
+    return successRes;
   } catch (err: any) {
     console.error(`[POST /api/audit] Failure at stage ${currentStage}:`, err);
 
