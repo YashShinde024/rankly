@@ -283,7 +283,7 @@ export interface ParsedSeoDoc {
   twitterTitle?: string;
   twitterDescription?: string;
   twitterImage?: string;
-  jsonLdBlocks: any[];
+  jsonLdBlocks: Record<string, unknown>[];
   schemaTypes: string[];
   faviconUrl?: string;
   lang?: string;

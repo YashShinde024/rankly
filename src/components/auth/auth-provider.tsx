@@ -6,6 +6,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
+  sendEmailVerification,
+  reload,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   updateProfile,
@@ -19,6 +21,7 @@ export interface RanklyUser {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
+  emailVerified: boolean;
 }
 
 interface AuthContextValue {
@@ -29,6 +32,9 @@ interface AuthContextValue {
   signInEmail: (email: string, password: string) => Promise<RanklyUser>;
   signUpEmail: (name: string, email: string, password: string) => Promise<RanklyUser>;
   resetPassword: (email: string) => Promise<void>;
+  sendVerificationEmail: () => Promise<void>;
+  /** Reloads the Firebase user; returns the fresh emailVerified state. */
+  refreshVerification: () => Promise<boolean>;
   signOutUser: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
 }
@@ -41,6 +47,7 @@ function toRanklyUser(u: User): RanklyUser {
     email: u.email,
     displayName: u.displayName,
     photoURL: u.photoURL,
+    emailVerified: u.emailVerified,
   };
 }
 
@@ -144,6 +151,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const sendVerificationEmail = useCallback(async () => {
+    const auth = getFirebaseAuth();
+    const current = auth?.currentUser;
+    if (!current) throw new Error("Your session expired. Please sign in again.");
+    try {
+      await sendEmailVerification(current);
+    } catch (err) {
+      throw new Error(mapAuthError(err));
+    }
+  }, []);
+
+  const refreshVerification = useCallback(async () => {
+    const auth = getFirebaseAuth();
+    const current = auth?.currentUser;
+    if (!current) return false;
+    try {
+      await reload(current);
+      setUser(toRanklyUser(current));
+      return current.emailVerified;
+    } catch {
+      return current.emailVerified;
+    }
+  }, []);
+
   const signOutUser = useCallback(async () => {
     const auth = getFirebaseAuth();
     if (!auth) return;
@@ -162,8 +193,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, signInWithGoogle, signInEmail, signUpEmail, resetPassword, signOutUser, getIdToken }),
-    [user, loading, signInWithGoogle, signInEmail, signUpEmail, resetPassword, signOutUser, getIdToken]
+    () => ({
+      user,
+      loading,
+      signInWithGoogle,
+      signInEmail,
+      signUpEmail,
+      resetPassword,
+      sendVerificationEmail,
+      refreshVerification,
+      signOutUser,
+      getIdToken,
+    }),
+    [
+      user,
+      loading,
+      signInWithGoogle,
+      signInEmail,
+      signUpEmail,
+      resetPassword,
+      sendVerificationEmail,
+      refreshVerification,
+      signOutUser,
+      getIdToken,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

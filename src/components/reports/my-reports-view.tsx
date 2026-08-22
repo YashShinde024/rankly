@@ -127,7 +127,8 @@ export function MyReportsView() {
     <div className="space-y-8">
       <header className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-3">
         <div>
-          <span className="font-mono text-[10px] uppercase tracking-widest text-[#66666E]">
+          <span className="font-mono text-[10px] uppercase tracking-widest text-[#66666E] inline-flex items-center gap-2">
+            <span className="spectral-dot" aria-hidden="true" />
             Workspace
           </span>
           <h1 className="text-2xl sm:text-3xl font-light tracking-tight mt-1.5">My Reports</h1>
@@ -157,7 +158,9 @@ export function MyReportsView() {
         >
           <Globe className="h-7 w-7 text-[#C9C9C4] mx-auto" aria-hidden="true" />
           <div className="space-y-1.5">
-            <h2 className="text-base font-medium text-[#121214]">No reports yet.</h2>
+            <h2 className="text-base font-medium">
+              <span className="spectral-text-static">No reports yet.</span>
+            </h2>
             <p className="text-xs text-[#66666E] leading-relaxed">
               Analyze your first website to start building your visibility history.
             </p>

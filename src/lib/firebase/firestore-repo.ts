@@ -24,6 +24,9 @@ const MAX_PUBLIC_AUDITS = 500;
 
 export type AuditVisibility = "public" | "private";
 
+/** Guest reports expire 7 days after creation (see TTL note in FIREBASE-SETUP.md). */
+export const GUEST_REPORT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export interface AuditIndexCard {
   hostname: string;
   pageTitle: string;
@@ -56,6 +59,9 @@ export interface AuditDoc {
   visibility: AuditVisibility;
   analysisType: string; // goals: all|seo|aeo|geo
   websiteType: string;
+
+  /** Guest-only hard expiration timestamp. */
+  expiresAt?: Date | null;
 }
 
 /** Normalize an incoming id to the canonical RKL-XXXXXX document key. */
@@ -115,6 +121,13 @@ export async function saveAuditToFirestore(
     visibility: opts.visibility,
     analysisType: opts.analysisType,
     websiteType: opts.websiteType,
+
+    // Guest reports are temporary: hard expiration is enforced at read time,
+    // while physical deletion is handled asynchronously by a Firestore TTL
+    // policy on this field (see FIREBASE-SETUP.md).
+    ...(opts.userId
+      ? {}
+      : { expiresAt: new Date(now.getTime() + GUEST_REPORT_TTL_MS), retention: "guest-7d" }),
   });
 }
 
@@ -158,6 +171,13 @@ export async function getAuditFromFirestore(
   const data = snap.data() as Partial<AuditDoc> & { reportData?: SeoAuditReport };
   if (!data.reportData) return null;
 
+  // Guest reports hard-expire after 7 days — unavailable even before the
+  // asynchronous TTL policy physically removes the document.
+  const expiresMs = data.expiresAt instanceof Date ? data.expiresAt.getTime() : (data.expiresAt as unknown as { toMillis?: () => number })?.toMillis?.() ?? null;
+  if (!data.userId && expiresMs && expiresMs < Date.now()) {
+    return null;
+  }
+
   return {
     report: data.reportData,
     userId: data.userId ?? null,
@@ -186,6 +206,9 @@ export async function getPublicRecentAudits(limit = 50): Promise<ExploreAuditRec
       if (data.visibility !== "public") return;
       const createdAtMs = data.createdAt?.toMillis?.() ?? 0;
       if (createdAtMs < cutoff) return;
+      // Skip expired guest reports
+      const expiresMs = data.expiresAt?.toMillis?.() ?? null;
+      if (!data.userId && expiresMs && expiresMs < Date.now()) return;
       records.push({
         id: data.auditId ?? doc.id,
         domain: data.hostname ?? "",

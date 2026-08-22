@@ -19,7 +19,7 @@ export function buildGeminiUserPrompt(auditPayload: {
     title: string;
     status: string;
     severity: string;
-    value?: any;
+    value?: string | number | boolean | null;
     details?: string;
   }>;
 }): string {

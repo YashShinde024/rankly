@@ -10,7 +10,7 @@ export function FinalCta() {
         <div className="max-w-2xl">
           <h2 className="text-3xl sm:text-5xl font-light tracking-tight text-[#121214] leading-tight">
             See what your <br />
-            website is missing.
+            website is <span className="spectral-text">missing.</span>
           </h2>
           <p className="mt-4 text-sm text-[#66666E]">
             Run a deterministic SEO audit and receive prioritized recommendations in seconds.

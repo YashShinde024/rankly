@@ -77,7 +77,7 @@ export function AuthGateModal({ open, onClose, contextHostname }: AuthGateModalP
                   Your first report is complete
                 </span>
                 <h2 className="text-xl sm:text-2xl font-light tracking-tight text-[#121214] leading-snug">
-                  Unlock your Rankly workspace
+                  Unlock your Rankly <span className="spectral-text">workspace</span>
                 </h2>
                 <p className="text-xs sm:text-sm text-[#66666E] leading-relaxed">
                   Create a free account to continue analyzing websites{" "}

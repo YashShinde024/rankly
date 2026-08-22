@@ -84,6 +84,80 @@
 .spectrum-line {
   background: linear-gradient(90deg, #3B82F6, #8B5CF6, #EC4899);
 }
+
+/* Animated spectral text — slow, premium shimmer for highlighted words.
+   GPU-friendly (background-position only); static gradient under reduced motion. */
+.spectral-text {
+  background: linear-gradient(
+    100deg,
+    #1D4ED8,
+    #6D28D9,
+    #BE185D,
+    #1D4ED8
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: spectral-flow 9s ease-in-out infinite;
+}
+
+@keyframes spectral-flow {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spectral-text {
+    animation: none;
+    background: #6D28D9;
+    -webkit-text-fill-color: #6D28D9;
+  }
+}
+
+/* Static variant — same gradient identity without motion. Use for smaller text
+   where a moving gradient would feel busy (labels, empty states, badges). */
+.spectral-text-static {
+  background: linear-gradient(100deg, #1D4ED8, #6D28D9, #BE185D);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Subtle gradient border wrapper — pair with p-[1.5px] and an inner surface.
+   <div className="spectral-border p-[1.5px]"><div className="bg-white">…</div></div> */
+.spectral-border {
+  background: linear-gradient(
+    120deg,
+    rgba(59, 130, 246, 0.55),
+    rgba(139, 92, 246, 0.55),
+    rgba(236, 72, 153, 0.55)
+  );
+}
+
+/* Tiny animated gradient indicator — for eyebrows and status accents. */
+.spectral-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: linear-gradient(120deg, #3B82F6, #8B5CF6, #EC4899);
+  background-size: 220% 100%;
+  animation: spectral-flow 9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spectral-dot {
+    animation: none;
+    background: #6D28D9;
+  }
+}
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%);
   border-color: rgba(139, 92, 246, 0.25);
   color: #6D28D9;

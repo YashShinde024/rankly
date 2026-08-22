@@ -19,7 +19,7 @@ export function ScoreOverview({ report }: ScoreOverviewProps) {
             Rankly Score
           </span>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-mono text-7xl font-light text-[#121214]">
+            <span className="font-mono text-7xl font-light spectral-text">
               {report.overallScore}
             </span>
             <span className="font-mono text-sm text-[#66666E]">/ 100</span>

@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { AiAccent } from "@/components/ui/ai-accent";
 import { RanklyLogo } from "@/components/ui/rankly-logo";
+import { AuthGateModal } from "@/components/auth/auth-gate-modal";
+import { useAuth } from "@/components/auth/auth-provider";
 import { cacheAuditReport } from "@/lib/client/audit-cache";
 
 /* ------------------------------------------------------------------ */
@@ -30,11 +32,11 @@ import { cacheAuditReport } from "@/lib/client/audit-cache";
 
 const WEBSITE_TYPES = [
   { id: "saas", title: "SaaS / Web App", desc: "Software product, developer tool, or cloud platform.", Icon: AppWindow },
-  { id: "business", title: "Business / Company", desc: "Corporate website, B2B service, or organization.", Icon: Building2 },
-  { id: "portfolio", title: "Portfolio / Personal", desc: "Personal website, resume, or creator showcase.", Icon: User },
+  { id: "business", title: "Business", desc: "Corporate website, B2B service, or organization.", Icon: Building2 },
+  { id: "portfolio", title: "Portfolio", desc: "Personal website, resume, or creator showcase.", Icon: User },
   { id: "blog", title: "Blog / Publication", desc: "Editorial content, articles, or knowledge hub.", Icon: Newspaper },
   { id: "ecommerce", title: "E-commerce", desc: "Online store, marketplace, or product catalog.", Icon: ShoppingBag },
-  { id: "agency", title: "Agency / Studio", desc: "Creative studio, consultancy, or development agency.", Icon: Layers },
+  { id: "agency", title: "Agency / Service", desc: "Creative studio, consultancy, or development agency.", Icon: Layers },
 ] as const;
 
 const FOCUS_MODES = [
@@ -135,6 +137,8 @@ function SiteFavicon({ hostname }: { hostname: string }) {
 export function OnboardingExperience({ variant, onSkip }: OnboardingExperienceProps) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
+  const { getIdToken } = useAuth();
+  const [gateOpen, setGateOpen] = useState(false);
 
   const [step, setStep] = useState(1); // 1..5 (5 = ready)
   const [userName, setUserName] = useState("");
@@ -160,8 +164,6 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
     if (goals) rows.push({ label: "Focus", value: FOCUS_LABELS[goals] });
     return rows;
   }, [userName, hostname, websiteType, goals]);
-
-  const showConfigPanel = step >= 2 && configRows.length > 0;
 
   useEffect(() => {
     try {
@@ -230,9 +232,13 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
     } catch {}
 
     try {
+      const token = await getIdToken();
       const res = await fetch("/api/audit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           url: parsed.cleanUrl,
           websiteType,
@@ -246,11 +252,20 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
         if (data.report) {
           cacheAuditReport(data.auditId, data.report);
         }
+        try {
+          localStorage.setItem("rankly_guest_audit_used", data.auditId);
+        } catch {}
         router.push(`/audit/${data.auditId}?onboarded=true`);
         return;
       }
       if (res.status === 409 && data.existingAuditId) {
         router.push(`/audit/${data.existingAuditId}?cached=true`);
+        return;
+      }
+      // Guest free analysis already consumed → premium conversion gate
+      if (res.status === 403 && data?.error === "GUEST_LIMIT_REACHED") {
+        setIsSubmitting(false);
+        setGateOpen(true);
         return;
       }
       setErrorMsg(data.message || "Unable to complete the audit. Please check the website address.");
@@ -353,72 +368,41 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
     </nav>
   );
 
-  /* Mobile stepper ----------------------------------------------------- */
-
+  /* Mobile stepper — step counter + current label + compact bar */
   const MobileStepper = (
-    <div className="lg:hidden flex items-center gap-3 flex-1 min-w-0" aria-hidden="true">
-      <span className="font-mono text-[10px] text-[#66666E] shrink-0">
-        {isReadyStep ? "READY" : `0${step} / 04`}
-      </span>
-      <div className="flex items-center gap-1 flex-1 max-w-[140px]">
-        {STEPS.slice(0, 4).map((s, i) => (
-          <div key={s.n} className="h-[3px] flex-1 bg-[#EFEFEA] overflow-hidden">
-            <motion.div
-              className="h-full w-full spectrum-line"
-              style={{ transformOrigin: "left" }}
-              initial={false}
-              animate={{ scaleX: step > i + 1 ? 1 : step === i + 1 ? 0.55 : 0 }}
-              transition={{ duration: dur(0.3), ease: "easeOut" }}
-            />
-          </div>
-        ))}
-        {isReadyStep && <div className="h-[3px] flex-1 spectrum-line" />}
+    <div className="lg:hidden flex flex-col gap-1.5 flex-1 min-w-0" aria-hidden="true">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="font-mono text-[10px] text-[#66666E] shrink-0">
+          {isReadyStep ? "Step 5 of 5" : `Step ${step} of 5`}
+        </span>
+        <span className="font-mono text-[10px] uppercase tracking-wider text-[#121214] truncate">
+          {STEPS[Math.min(step, 5) - 1].label}
+        </span>
       </div>
-      <span className="font-mono text-[10px] uppercase tracking-wider text-[#121214] truncate">
-        {STEPS[Math.min(step, 5) - 1].label}
-      </span>
+      <div className="h-[3px] w-full bg-[#EFEFEA] overflow-hidden">
+        <motion.div
+          className="h-full spectrum-line"
+          style={{ transformOrigin: "left" }}
+          initial={false}
+          animate={{ scaleX: Math.min(step, 5) / 5 }}
+          transition={{ duration: dur(0.3), ease: "easeOut" }}
+        />
+      </div>
     </div>
   );
 
-  /* Report configuration panel ----------------------------------------- */
+  /* Compact "Your configuration" summary — single collapsible, all viewports */
 
-  const ConfigPanel = (
-    <aside
-      aria-label="Report configuration"
-      className="border border-[#EFEFEA] bg-[#FCFCFB] p-5 space-y-4 h-fit lg:sticky lg:top-6"
-    >
-      <span className="font-mono text-[10px] uppercase tracking-widest text-[#121214] block">
-        Report configuration
-      </span>
-      <div className="h-px w-8 spectrum-line opacity-70" aria-hidden="true" />
-      <dl className="space-y-3.5">
-        {configRows.map((row) => (
-          <div key={row.label}>
-            <dt className="font-mono text-[10px] uppercase tracking-wider text-[#9E9EA4]">
-              {row.label}
-            </dt>
-            <dd className="text-xs text-[#121214] mt-0.5 break-words">{row.value}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="text-[10px] text-[#B9B9B4] leading-relaxed border-t border-[#EFEFEA] pt-3.5">
-        Updates as you configure. Your report is generated from publicly accessible website signals.
-      </p>
-    </aside>
-  );
-
-  /* Mobile config summary ----------------------------------------------- */
-
-  const MobileConfigSummary =
-    showConfigPanel && configRows.length > 0 ? (
-      <details className="lg:hidden border border-[#EFEFEA] bg-[#FCFCFB] open:pb-3">
-        <summary className="px-4 py-2.5 font-mono text-[10px] uppercase tracking-widest text-[#66666E] cursor-pointer select-none list-none flex items-center justify-between">
-          <span>Report configuration</span>
-          <span className="text-[#B9B9B4] normal-case tracking-normal">
-            {configRows.length} configured
+  const ConfigSummary =
+    configRows.length > 0 ? (
+      <details className="border border-[#EFEFEA] bg-[#FCFCFB] open:pb-3 w-full">
+        <summary className="px-4 py-2.5 font-mono text-[10px] uppercase tracking-widest text-[#66666E] cursor-pointer select-none list-none flex items-center justify-between gap-3">
+          <span>Your configuration</span>
+          <span className="text-[#B9B9B4] normal-case tracking-normal truncate">
+            {configRows.map((r) => r.value).join(" · ")}
           </span>
         </summary>
-        <dl className="px-4 space-y-2 pt-1">
+        <dl className="px-4 space-y-2 pt-1 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:space-y-0 sm:gap-y-2">
           {configRows.map((row) => (
             <div key={row.label} className="flex items-baseline justify-between gap-4">
               <dt className="font-mono text-[10px] uppercase tracking-wider text-[#9E9EA4] shrink-0">
@@ -443,7 +427,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
         </span>
         <h2 className="text-2xl sm:text-[2rem] font-light tracking-tight text-[#121214] mt-2 leading-tight">
           Let&apos;s personalize your{" "}
-          <span className="bg-gradient-to-r from-blue-700 via-violet-700 to-pink-700 bg-clip-text text-transparent">
+          <span className="spectral-text">
             intelligence report.
           </span>
         </h2>
@@ -452,16 +436,16 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
         </p>
       </div>
 
-      {/* Name input with spectral focus */}
+      {/* Nickname input with spectral focus */}
       <div className="space-y-2">
         <label
           htmlFor="onb-name"
           className="block font-mono text-[10px] uppercase tracking-wider text-[#66666E]"
         >
-          What should we call you? <span className="normal-case tracking-normal">(optional)</span>
+          Nickname <span className="normal-case tracking-normal">(optional)</span>
         </label>
         <div
-          className={`relative p-[1.5px] transition-all duration-300 ${
+          className={`relative p-[1.5px] transition-shadow duration-300 ${
             nameFocused ? "spectrum-line shadow-[0_0_0_4px_rgba(139,92,246,0.06)]" : "bg-[#EFEFEA]"
           }`}
         >
@@ -475,14 +459,18 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
               onFocus={() => setNameFocused(true)}
               onBlur={() => setNameFocused(false)}
               onKeyDown={(e) => e.key === "Enter" && handleNext()}
-              placeholder="Your name or organization"
+              placeholder="Your nickname, name, or organization"
               maxLength={80}
-              autoComplete="organization"
+              autoComplete="nickname"
+              aria-describedby="onb-name-hint"
               className="w-full text-sm font-mono text-[#121214] placeholder:text-[#B9B9B4] bg-transparent focus:outline-none"
               autoFocus
             />
           </div>
         </div>
+        <p id="onb-name-hint" className="text-[11px] text-[#8C8C94]">
+          Used to personalize your Rankly experience.
+        </p>
       </div>
 
       {/* Capability cards — informative, not interactive choices */}
@@ -743,7 +731,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6 items-start">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_minmax(220px,260px)] gap-5 items-start">
         <div role="radiogroup" aria-label="Analysis focus" className="space-y-2.5">
           {FOCUS_MODES.map((f) => {
             const isSelected = goals === f.id;
@@ -785,7 +773,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
         </div>
 
         {/* Scope visualization */}
-        <div className="hidden lg:flex flex-col items-center border border-[#EFEFEA] bg-[#FCFCFB] p-5 h-fit sticky top-6">
+        <div className="flex flex-col items-center border border-[#EFEFEA] bg-[#FCFCFB] p-4 h-fit">
           <span className="font-mono text-[10px] uppercase tracking-widest text-[#9E9EA4] self-start">
             Analysis scope
           </span>
@@ -866,7 +854,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
     <motion.div key="s5" {...stepMotion} className="max-w-xl mx-auto w-full space-y-7 text-center">
       <div className="space-y-2">
         <span className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-[#121214]">
-          <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-r from-blue-500 via-violet-500 to-pink-500" aria-hidden="true" />
+          <span className="spectral-dot !h-1.5 !w-1.5" aria-hidden="true" />
           Ready to analyze
         </span>
         <h2 className="text-2xl sm:text-[2rem] font-light tracking-tight text-[#121214] leading-tight">
@@ -918,9 +906,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
                   </>
                 ) : (
                   <>
-                    <span>
-                      Analyze <span className="font-mono">{hostname}</span>
-                    </span>
+                    <span>Analyze website</span>
                     <ArrowRight className="h-3.5 w-3.5 text-violet-300 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                   </>
                 )}
@@ -959,7 +945,7 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
         <span>Rankly AI Engine</span>
       </AiAccent>
       <h3 className="mt-5 text-xl sm:text-2xl font-light tracking-tight text-[#121214]">
-        Preparing your analysis
+        Preparing your <span className="spectral-text">analysis</span>
       </h3>
       <p className="mt-2 text-xs sm:text-sm text-[#66666E] max-w-sm leading-relaxed">
         Evaluating public signals for <span className="font-mono text-[#121214]">{hostname}</span>.
@@ -1014,7 +1000,8 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
         <button
           type="button"
           onClick={handleNext}
-          className="group inline-flex items-center gap-2 bg-[#121214] text-white px-6 py-2.5 text-xs font-medium hover:bg-black transition-colors cursor-pointer outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8B5CF6]"
+          disabled={step === 3 && !parsed}
+          className="group inline-flex items-center gap-2 bg-[#121214] text-white px-6 py-2.5 text-xs font-medium hover:bg-black transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8B5CF6]"
         >
           <span>Continue</span>
           <ArrowRight
@@ -1071,12 +1058,14 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
             )}
           </header>
 
-          {/* Body */}
-          <div className="flex-1 flex flex-col px-5 sm:px-8 py-7 sm:py-9">
+          {/* Body — single primary content column */}
+          <div className="flex-1 flex flex-col px-5 sm:px-8 py-6 sm:py-9">
             {isSubmitting ? (
               analysisState
             ) : (
-              <div className={`flex-1 flex flex-col gap-6 ${showConfigPanel ? "lg:grid lg:grid-cols-[1fr_250px]" : ""}`}>
+              <div className="flex-1 flex flex-col gap-5 w-full max-w-2xl mx-auto min-w-0">
+                {ConfigSummary && <div className="shrink-0">{ConfigSummary}</div>}
+
                 <div className="flex-1 flex flex-col min-w-0">
                   <AnimatePresence mode="wait" initial={false}>
                     {step === 1 && stepIdentity}
@@ -1098,17 +1087,16 @@ export function OnboardingExperience({ variant, onSkip }: OnboardingExperiencePr
                     </motion.div>
                   )}
                 </div>
-
-                {showConfigPanel && <div className="hidden lg:block">{ConfigPanel}</div>}
               </div>
             )}
-            {MobileConfigSummary && !isSubmitting && <div className="mt-auto pt-5">{MobileConfigSummary}</div>}
           </div>
 
           {/* Footer controls */}
           {!isSubmitting && footerControls}
         </div>
       </div>
+
+      <AuthGateModal open={gateOpen} onClose={() => setGateOpen(false)} contextHostname={hostname} />
     </div>
   );
 }

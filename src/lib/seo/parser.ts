@@ -154,7 +154,7 @@ export function parseHtml(html: string, baseUrl: string): ParsedSeoDoc {
     undefined;
 
   // 7. Schema.org JSON-LD Blocks & Schema Types
-  const jsonLdBlocks: any[] = [];
+  const jsonLdBlocks: Record<string, unknown>[] = [];
   const schemaTypes: string[] = [];
 
   $('script[type="application/ld+json"]').each((_, el) => {
@@ -164,17 +164,17 @@ export function parseHtml(html: string, baseUrl: string): ParsedSeoDoc {
         const parsed = JSON.parse(raw);
         jsonLdBlocks.push(parsed);
 
-        const extractType = (obj: any) => {
+        const extractType = (obj: Record<string, unknown>) => {
           if (!obj) return;
           if (obj["@type"]) {
             if (Array.isArray(obj["@type"])) {
-              schemaTypes.push(...obj["@type"]);
+              schemaTypes.push(...(obj["@type"] as string[]));
             } else {
-              schemaTypes.push(obj["@type"]);
+              schemaTypes.push(obj["@type"] as string);
             }
           }
           if (Array.isArray(obj["@graph"])) {
-            obj["@graph"].forEach(extractType);
+            (obj["@graph"] as Record<string, unknown>[]).forEach(extractType);
           }
         };
         extractType(parsed);

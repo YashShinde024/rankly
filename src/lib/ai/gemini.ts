@@ -2,6 +2,21 @@ import { GoogleGenAI } from "@google/genai";
 import { AiRecommendation, AuditCategory, AuditCheck, CategoryScore, SeoAuditReport } from "@/types/audit";
 import { GEMINI_SYSTEM_PROMPT, buildGeminiUserPrompt } from "./prompt";
 
+/** Shape of one recommendation as returned by the Gemini JSON response. */
+interface GeminiRecommendation {
+  id?: string;
+  title: string;
+  findingSummary: string;
+  whyItMatters: string;
+  actionableFix: string;
+  codeExample?: string | null;
+  suggestedCopy?: string | null;
+  priority: string;
+  estimatedEffort: string;
+  affectedCategory: string;
+  area: string;
+}
+
 /**
  * Fallback deterministic synthesis when GEMINI_API_KEY is not set or API is unreachable.
  */
@@ -157,7 +172,12 @@ export async function analyzeWithGemini(
       return generateDeterministicAiFallback(domain, overallScore, categories, checks);
     }
 
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(text) as {
+      overview: unknown;
+      strengths: string[];
+      topPriorities: string[];
+      recommendations: GeminiRecommendation[];
+    };
 
     if (
       typeof parsed.overview !== "string" ||
@@ -175,7 +195,7 @@ export async function analyzeWithGemini(
         strengths: parsed.strengths.slice(0, 3),
         topPriorities: parsed.topPriorities.slice(0, 3),
       },
-      recommendations: parsed.recommendations.slice(0, 4).map((r: any, idx: number) => ({
+      recommendations: parsed.recommendations.slice(0, 4).map((r: GeminiRecommendation, idx: number) => ({
         id: r.id || `rec-${idx + 1}`,
         title: r.title,
         findingSummary: r.findingSummary,
@@ -183,12 +203,16 @@ export async function analyzeWithGemini(
         actionableFix: r.actionableFix,
         codeExample: r.codeExample || undefined,
         suggestedCopy: r.suggestedCopy || undefined,
-        priority: ["critical", "important", "recommended"].includes(r.priority) ? r.priority : "important",
-        estimatedEffort: ["quick", "moderate", "involved"].includes(r.estimatedEffort) ? r.estimatedEffort : "quick",
-        affectedCategory: ["technical", "onpage", "content", "social", "aeo", "geo"].includes(r.affectedCategory)
+        priority: (["critical", "important", "recommended"].includes(r.priority)
+          ? r.priority
+          : "important") as AiRecommendation["priority"],
+        estimatedEffort: (["quick", "moderate", "involved"].includes(r.estimatedEffort)
+          ? r.estimatedEffort
+          : "quick") as AiRecommendation["estimatedEffort"],
+        affectedCategory: (["technical", "onpage", "content", "social", "aeo", "geo"].includes(r.affectedCategory)
           ? r.affectedCategory
-          : "technical",
-        area: ["SEO", "AEO", "GEO"].includes(r.area) ? r.area : "SEO",
+          : "technical") as AuditCategory,
+        area: (["SEO", "AEO", "GEO"].includes(r.area) ? r.area : "SEO") as AiRecommendation["area"],
       })),
     };
   } catch {

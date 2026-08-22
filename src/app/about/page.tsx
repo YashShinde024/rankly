@@ -3,7 +3,8 @@ import Link from "next/link";
 import { Navbar } from "@/components/navbar/navbar";
 import { Footer } from "@/components/footer/footer";
 import { RanklyByNyxenLogo } from "@/components/ui/rankly-logo";
-import { ArrowRight, ShieldCheck, Cpu, Search, MessageSquare, Bot, Lock } from "lucide-react";
+import { ArrowRight, ArrowUpRight, ShieldCheck, Cpu, Search, MessageSquare, Bot, Lock } from "lucide-react";
+import { NYXEN_SOCIALS } from "@/components/ui/social-icons";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -30,7 +31,7 @@ export default function AboutPage() {
             </span>
             <h1 className="mt-4 text-4xl sm:text-6xl font-light tracking-tight text-[#121214] leading-[1.1]">
               A clearer way to understand <br className="hidden sm:inline" />
-              your website.
+              <span className="spectral-text">your website.</span>
             </h1>
             <p className="mt-6 text-base sm:text-lg text-[#66666E] leading-relaxed max-w-2xl font-light">
               Rankly analyzes measurable website signals across traditional search, answer-oriented content, and generative AI readiness. It is designed to show not only a score, but the evidence behind it.
@@ -199,39 +200,75 @@ export default function AboutPage() {
             </div>
           </section>
 
-          {/* SECTION: BUILT BY */}
-          <section className="pt-8 border-t border-[#EFEFEA] space-y-4">
+          {/* SECTION: BUILT BY NYXEN */}
+          <section className="pt-8 border-t border-[#EFEFEA] space-y-6">
             <span className="font-mono text-[10px] uppercase tracking-wider text-[#8C8C94] block">
               Provenance
             </span>
-            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-4">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-[#121214]">
-                  Rankly is built by{" "}
-                  <a
-                    href="https://yashshinde.is-a.dev"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:text-black transition-colors"
-                  >
-                    Yash Shinde
-                  </a>
-                  .
-                </p>
-                <p className="text-xs text-[#66666E]">
-                  Part of{" "}
-                  <a
-                    href="https://nyxen.in"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:text-[#121214] transition-colors"
-                  >
-                    Nyxen
-                  </a>
-                  .
-                </p>
+
+            <div className="border border-[#EFEFEA] bg-white p-6 sm:p-8 space-y-5 relative overflow-hidden">
+              <div aria-hidden="true" className="absolute top-0 left-0 right-0 h-[2px] spectrum-line opacity-60" />
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6">
+                <div className="space-y-3 min-w-0">
+                  <RanklyByNyxenLogo height={40} />
+                  <p className="text-xs text-[#66666E] leading-relaxed max-w-lg">
+                    Rankly is designed, built, and maintained by{" "}
+                    <a
+                      href="https://yashshinde.is-a.dev"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#121214] underline underline-offset-2"
+                    >
+                      Yash Shinde
+                    </a>{" "}
+                    as part of{" "}
+                    <a
+                      href="https://nyxen.in"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-0.5 text-[#121214] underline underline-offset-2 hover:decoration-violet-600"
+                    >
+                      Nyxen
+                      <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                    </a>{" "}
+                    — an independent product studio building focused tools for the modern web.
+                  </p>
+                </div>
+
+                {/* Social links */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {NYXEN_SOCIALS.map(({ href, label, Icon }) => (
+                    <a
+                      key={href}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={label}
+                      className="flex h-9 w-9 items-center justify-center border border-[#EFEFEA] bg-white text-[#8C8C94] hover:text-[#121214] hover:border-[#D4D4D0] transition-colors"
+                    >
+                      <Icon />
+                    </a>
+                  ))}
+                </div>
               </div>
 
+              {/* Ecosystem */}
+              <div className="border-t border-[#EFEFEA] pt-4 flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-[11px]">
+                <span className="uppercase tracking-wider text-[#9E9EA4]">Nyxen products</span>
+                <a href="https://venzai.tech" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[#66666E] hover:text-[#121214] transition-colors">
+                  Venz AI <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                </a>
+                <a href="https://nychat.nyxen.in" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[#66666E] hover:text-[#121214] transition-colors">
+                  NyChat <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                </a>
+                <a href="https://nyxen.in" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[#66666E] hover:text-[#121214] transition-colors">
+                  nyxen.in <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                </a>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-4">
+              <div />
               <div>
                 <Link
                   href="/"

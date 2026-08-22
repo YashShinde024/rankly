@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSearchParams } from "next/navigation";
 import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { AiAccent } from "@/components/ui/ai-accent";
 
@@ -11,6 +12,8 @@ const CATEGORIES = [
   { id: "idea", label: "Feature idea" },
   { id: "general", label: "General question" },
 ] as const;
+
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "";
 
 type Status = "idle" | "sending" | "success" | "error";
 
@@ -22,11 +25,16 @@ interface FieldErrors {
 }
 
 export function ContactForm() {
+  const searchParams = useSearchParams();
+  const initialCategory = (() => {
+    const q = searchParams.get("category");
+    return q && CATEGORIES.some((c) => c.id === q) ? q : "feedback";
+  })();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
-  const [category, setCategory] = useState<string>("feedback");
+  const [category, setCategory] = useState<string>(initialCategory);
   const [company, setCompany] = useState(""); // honeypot
   const [status, setStatus] = useState<Status>("idle");
   const [serverError, setServerError] = useState<string | null>(null);
@@ -46,7 +54,7 @@ export function ContactForm() {
       const res = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, subject, message, category, company }),
+        body: JSON.stringify({ name, email, subject, message, category, company, product: "Rankly" }),
       });
       const data = await res.json().catch(() => null);
 
@@ -234,6 +242,15 @@ export function ContactForm() {
             role="alert"
           >
             {serverError}
+            {SUPPORT_EMAIL && (
+              <>
+                {" "}
+                Prefer email? Write to{" "}
+                <a href={`mailto:${SUPPORT_EMAIL}`} className="underline underline-offset-2 font-medium">
+                  {SUPPORT_EMAIL}
+                </a>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

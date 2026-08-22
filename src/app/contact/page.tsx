@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import { Navbar } from "@/components/navbar/navbar";
 import { Footer } from "@/components/footer/footer";
 import { ContactForm } from "@/components/contact/contact-form";
@@ -26,7 +27,7 @@ export default function ContactPage() {
             </span>
             <h1 className="mt-4 text-4xl sm:text-5xl font-light tracking-tight leading-[1.1]">
               Let&apos;s talk about{" "}
-              <span className="bg-gradient-to-r from-violet-700 via-blue-600 to-pink-600 bg-clip-text text-transparent">
+              <span className="spectral-text">
                 your visibility.
               </span>
             </h1>
@@ -41,7 +42,9 @@ export default function ContactPage() {
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-10 pb-24">
               {/* Form */}
               <section aria-label="Contact form">
-                <ContactForm />
+                <Suspense fallback={null}>
+                  <ContactForm />
+                </Suspense>
               </section>
 
               {/* Direct channels */}

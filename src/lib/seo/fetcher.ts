@@ -118,7 +118,7 @@ export async function fetchWebsite(targetUrl: string): Promise<RawFetchResult> {
 
           const htmlBuffer = Buffer.concat(chunks);
           html = htmlBuffer.toString("utf-8");
-        } catch (streamErr: any) {
+        } catch (streamErr: unknown) {
           if (streamErr instanceof FetchError) throw streamErr;
           // Fallback to response.text() if stream reader encounters runtime quirks
           html = await response.text();
@@ -152,15 +152,16 @@ export async function fetchWebsite(targetUrl: string): Promise<RawFetchResult> {
         contentType,
         contentLength: totalBytes,
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       clearTimeout(timeoutId);
-      if (err.name === "AbortError") {
+      const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof DOMException && err.name === "AbortError") {
         throw new FetchError("Connection timed out", 408, "The target website took too long to respond (8 second timeout exceeded).");
       }
       if (err instanceof FetchError) {
         throw err;
       }
-      throw new FetchError(`Network failure: ${err.message}`, 422, "Unable to establish connection to the target website. Check the domain name.");
+      throw new FetchError(`Network failure: ${message}`, 422, "Unable to establish connection to the target website. Check the domain name.");
     }
   }
 

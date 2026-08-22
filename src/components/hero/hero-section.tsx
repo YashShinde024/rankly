@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Check, AlertCircle, Sparkles, Clock, ArrowUpRight } from "lucide-react";
 import { AuditHeroPreview } from "./audit-hero-preview";
+import { AuthGateModal } from "@/components/auth/auth-gate-modal";
 import { cacheAuditReport } from "@/lib/client/audit-cache";
 
 type ScanStep = "validating" | "connecting" | "checking" | "ai" | "saving" | "done";
@@ -21,6 +22,8 @@ export function HeroSection() {
   const [completedSteps, setCompletedSteps] = useState<Set<ScanStep>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [cooldownInfo, setCooldownInfo] = useState<CooldownInfo | null>(null);
+  const [gateOpen, setGateOpen] = useState(false);
+  const [gateHostname, setGateHostname] = useState<string | null>(null);
   const router = useRouter();
 
   const handleAnalyze = async (e: React.FormEvent) => {
@@ -68,6 +71,7 @@ export function HeroSection() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: inputUrl }),
+        // Guest identity travels via the signed cookie; no auth header needed here.
       });
 
       clearTimeout(t1);
@@ -75,7 +79,18 @@ export function HeroSection() {
       clearTimeout(t3);
       clearTimeout(t4);
 
-      let data: any = null;
+      // Minimal shape contract for the audit API response
+      let data: {
+        success?: boolean;
+        auditId?: string;
+        report?: Parameters<typeof cacheAuditReport>[1];
+        error?: string;
+        message?: string;
+        stage?: string;
+        domain?: string;
+        existingAuditId?: string;
+        nextAllowedDate?: string;
+      } | null = null;
       try {
         data = await response.json();
       } catch (parseErr) {
@@ -99,9 +114,16 @@ export function HeroSection() {
           // 7-day cooldown UX feedback
           setCooldownInfo({
             domain: data.domain || inputUrl,
-            existingAuditId: data.existingAuditId || data.auditId,
+            existingAuditId: data.existingAuditId || data.auditId || inputUrl,
             nextAllowedDate: data.nextAllowedDate,
           });
+          return;
+        }
+
+        // Guest free analysis already consumed → premium conversion gate
+        if (response.status === 403 && data?.error === "GUEST_LIMIT_REACHED") {
+          setGateOpen(true);
+          setGateHostname(inputUrl);
           return;
         }
 
@@ -140,9 +162,14 @@ export function HeroSection() {
       if (data.report) {
         cacheAuditReport(data.auditId, data.report);
       }
+      try {
+        localStorage.setItem("rankly_guest_audit_used", data.auditId);
+      } catch {}
 
       setTimeout(() => {
-        router.push(`/audit/${encodeURIComponent(data.auditId)}`);
+        if (data?.auditId) {
+          router.push(`/audit/${encodeURIComponent(data.auditId)}`);
+        }
       }, 450);
     } catch (netErr) {
       console.error("[HeroSection] Network exception during audit:", netErr);
@@ -168,8 +195,8 @@ export function HeroSection() {
       <div className="relative mx-auto max-w-6xl px-6">
         {/* Left-Aligned Editorial Composition */}
         <div className="max-w-3xl">
-          <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-[#66666E]">
-            <span>Search & AI Visibility Intelligence</span>
+          <div className="flex flex-wrap items-center gap-2 font-mono text-xs uppercase tracking-widest text-[#66666E]">
+            <span>Website intelligence for the AI search era</span>
             <span className="text-[#D4D4D0]">·</span>
             <span className="inline-flex items-center gap-1 font-semibold text-[#121214]">
               <Sparkles className="h-3 w-3 text-violet-600" />
@@ -178,15 +205,20 @@ export function HeroSection() {
           </div>
 
           <h1 className="mt-4 text-4xl sm:text-6xl font-light tracking-tight text-[#121214] leading-[1.08]">
-            Understand how your <br />
-            website is seen by <br />
-            <span className="bg-gradient-to-r from-violet-700 via-blue-600 to-pink-600 bg-clip-text text-transparent">
-              search &amp; AI systems.
+            Understand how your website performs across{" "}
+            <span className="spectral-text">
+              Search, Answers, and AI.
             </span>
           </h1>
 
           <p className="mt-6 max-w-xl text-sm sm:text-base text-[#66666E] leading-relaxed">
-            Analyze your website&apos;s technical SEO, content structure, answer-engine readiness, and AI discoverability signals — then see exactly what to improve.
+            Rankly audits your website&apos;s <strong className="font-medium text-[#121214]">SEO</strong>{" "}
+            (search visibility),{" "}
+            <strong className="font-medium text-[#121214]">AEO</strong>{" "}
+            (answer-engine readiness), and{" "}
+            <strong className="font-medium text-[#121214]">GEO</strong>{" "}
+            (generative AI discoverability) — then shows exactly what to improve, with the evidence
+            behind every score.
           </p>
 
           {/* Instrument URL Input with Gemini Spectrum Border on CTA */}
@@ -243,6 +275,17 @@ export function HeroSection() {
                 </button>
               </div>
             </form>
+
+            {/* Secondary CTA */}
+            <div className="mt-4">
+              <Link
+                href="/how-it-works"
+                className="inline-flex items-center gap-1.5 text-xs font-mono text-[#66666E] hover:text-[#121214] underline underline-offset-4 decoration-[#D4D4D0] transition-colors"
+              >
+                See how it works
+                <ArrowRight className="h-3 w-3" aria-hidden="true" />
+              </Link>
+            </div>
 
             {/* Sequential Scanning State UI with subtle spectrum accent during AI stage */}
             {isScanning && (
@@ -429,6 +472,8 @@ export function HeroSection() {
           <AuditHeroPreview />
         </div>
       </div>
+
+      <AuthGateModal open={gateOpen} onClose={() => setGateOpen(false)} contextHostname={gateHostname} />
     </section>
   );
 }

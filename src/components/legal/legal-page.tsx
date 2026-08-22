@@ -43,8 +43,8 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         <P>
           Rankly analyzes publicly accessible web pages and produces search &amp; AI-visibility
           reports. This policy explains what we collect, why, how long we keep it, and the choices
-          you have. The short version: no accounts, no tracking profiles, and audits only run on
-          URLs you (or someone else) explicitly submit.
+          you have. Rankly works for guests (one free analysis, no signup required) and for
+          optional registered accounts powered by Google Firebase Authentication.
         </P>
       </>
     ),
@@ -57,8 +57,9 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       <L>
         <>The URL you submit for analysis, plus a normalized reference ID for the resulting report.</>
         <>Publicly available content from the submitted page: HTML metadata, headings, link structure, robots.txt, sitemap.xml, and server response headers.</>
-        <>A coarse, truncated client IP address used exclusively for rate limiting abuse prevention. It is not linked to your browsing activity and is never sold or shared.</>
-        <>Optional onboarding preferences (name, website type, goals) stored only in your browser&apos;s localStorage — never transmitted to our servers as profile data.</>
+        <>A coarse client IP address used exclusively for rate limiting and abuse prevention. It is not linked to your browsing activity and is never sold or shared.</>
+        <>If you create an account: your email address, display name/nickname, and profile photo URL (when signing in with Google). Authentication is handled by Firebase Authentication — Rankly never sees or stores your password.</>
+        <>Onboarding preferences (nickname, website type, analysis focus) stored in your browser&apos;s localStorage, and — when you are signed in — as part of your profile and reports in Firestore.</>
       </L>
     ),
   },
@@ -90,25 +91,28 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     icon: <Lock className="h-3.5 w-3.5" />,
     body: (
       <L>
-        <>Audit reports are stored as lightweight JSON (scores, findings, metadata — never raw page HTML) and retained for up to 30 days before expiring automatically.</>
+        <>Audit reports are stored as lightweight JSON (scores, findings, metadata — never raw page HTML).</>
+        <><strong>Guest reports</strong> are temporary and expire 7 days after creation; they become unavailable at that point and are removed from our database afterward.</>
+        <><strong>Authenticated reports</strong> are stored in Firestore under your account and remain available in your workspace unless a future retention policy changes this.</>
         <>The public index keeps a maximum of the 500 most recent audits; older records are removed first.</>
-        <>A domain can only be re-audited every 7 days; cooldown records carry a matching 7-day TTL.</>
-        <>Your onboarding preferences live in browser storage on your device and can be cleared at any time via your browser settings.</>
-        <>We do not use third-party advertising or cross-site tracking cookies.</>
+        <>A domain can only be re-audited every 7 days; cooldown records carry a matching 7-day window.</>
+        <>We use a small number of browser cookies/localStorage entries strictly for product function: your onboarding state, a signed identifier that ties your one free guest analysis to this browser, and your session when signed in. We do not use advertising or cross-site tracking cookies.</>
+        <>No analytics service is currently enabled.</>
       </L>
     ),
   },
   {
     id: "public-reports",
-    title: "Public reports",
+    title: "Public reports & visibility",
     icon: <Eye className="h-3.5 w-3.5" />,
     body: (
       <>
         <P>
-          Audit reports are public by design: anyone with the report reference can view them, and
-          recent reports may appear in the public Index. Do not submit URLs whose analysis you
+          Reports are public by default: anyone with the report reference can view them, and recent
+          reports may appear in the public Index. Do not submit URLs whose analysis you
           wouldn&apos;t want visible. Report data contains only information already exposed
-          publicly by the target website itself.
+          publicly by the target website itself. Private, owner-only reports are part of our data
+          model and can only be opened by the authenticated account that created them.
         </P>
       </>
     ),
@@ -120,9 +124,10 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     body: (
       <>
         <P>
-          Since we don&apos;t maintain user accounts, there is generally no personal profile to
-          export or delete. To request removal of a specific audit report from our store, or to ask
-          anything about this policy, contact us and we will action reasonable requests promptly.
+          If you have an account you can sign out at any time, and request deletion of your
+          profile and associated reports. Guests can clear all local data from their browser
+          settings. To request removal of a specific audit report, or to ask anything about this
+          policy, contact us and we will action reasonable requests promptly.
         </P>
         <p className="text-sm text-[#121214] pt-2">
           Contact:{" "}
@@ -155,10 +160,27 @@ const TERMS_SECTIONS: LegalSection[] = [
     body: (
       <L>
         <>Only submit URLs you own or have permission to analyze.</>
-        <>Do not attempt to bypass rate limits (currently 5 audits per hour per IP), automate abusive volumes, or circumvent the 7-day domain cooldown.</>
+        <>Do not attempt to bypass rate limits (currently 5 audits per hour per IP), the one-free-analysis limit for guests, or the 7-day domain cooldown.</>
+        <>Do not create multiple accounts to circumvent usage limits, and do not attempt to access another user&apos;s private reports.</>
         <>Do not use Rankly to probe, scan, or attack infrastructure, or to harvest content at scale.</>
         <>We enforce server-side SSRF protections and reserve the right to block any traffic that violates these rules.</>
       </L>
+    ),
+  },
+  {
+    id: "accounts",
+    title: "Accounts & verification",
+    icon: <ShieldCheck className="h-3.5 w-3.5" />,
+    body: (
+      <>
+        <P>
+          Rankly offers optional free accounts (Google sign-in or email/password via Firebase
+          Authentication). Email/password accounts must verify their email address before gaining
+          full product access; verification emails can be resent from the product. You are
+          responsible for activity under your account. Reports created while browsing as a guest
+          may be linked to your account when you register from the same browser.
+        </P>
+      </>
     ),
   },
   {
@@ -226,6 +248,8 @@ export function LegalPage() {
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0 });
     }
+    // Reset the active tab when the ?tab= query param changes (deep links).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTab(initialTab);
   }, [initialTab]);
 
@@ -260,12 +284,12 @@ export function LegalPage() {
         </div>
         <h1 className="mt-4 text-4xl sm:text-5xl font-light tracking-tight leading-[1.08]">
           Privacy &amp; Terms,{" "}
-          <span className="bg-gradient-to-r from-violet-700 via-blue-600 to-pink-600 bg-clip-text text-transparent">
+          <span className="spectral-text">
             in plain language.
           </span>
         </h1>
         <p className="mt-4 max-w-xl text-sm sm:text-base text-[#66666E] leading-relaxed">
-          No accounts. No tracking profiles. Just clear rules about what happens when you run an
+          Clear rules about what happens when you run an
           audit — written to be read, not skimmed past.
         </p>
 

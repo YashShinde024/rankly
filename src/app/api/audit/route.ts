@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 2. Request body validation
-  let body: any;
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
@@ -70,7 +70,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { url, websiteType, goals } = body;
+  const { url, websiteType, goals } = (body ?? {}) as {
+    url?: unknown;
+    websiteType?: unknown;
+    goals?: unknown;
+  };
   if (!url || typeof url !== "string") {
     return NextResponse.json(
       { success: false, stage: "VALIDATING", error: "MISSING_URL", message: "Enter a valid public website URL." },
@@ -418,7 +422,7 @@ export async function POST(req: NextRequest) {
     );
     if (guestId) attachGuestCookie(successRes, guestId);
     return successRes;
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error(`[POST /api/audit] Failure at stage ${currentStage}:`, err);
 
     if (err instanceof FetchError) {
@@ -438,7 +442,10 @@ export async function POST(req: NextRequest) {
         success: false,
         stage: currentStage,
         error: "INTERNAL_ERROR",
-        message: err?.message || "An unexpected error occurred while analyzing the website. Please try again.",
+        message:
+          err instanceof Error && err.message
+            ? err.message
+            : "An unexpected error occurred while analyzing the website. Please try again.",
       },
       { status: 500 }
     );
