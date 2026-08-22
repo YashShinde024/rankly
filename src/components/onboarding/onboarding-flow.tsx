@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight, ArrowLeft, Check, Sparkles, Globe, Search, Bot, MessageSquare, User } from "lucide-react";
 import { AiAccent } from "@/components/ui/ai-accent";
+import { cacheAuditReport } from "@/lib/client/audit-cache";
 
 const WEBSITE_TYPES = [
   { id: "saas", title: "SaaS / Web App", desc: "Software product, developer tool, or cloud app" },
@@ -117,6 +118,9 @@ export function OnboardingFlow() {
 
         const data = await res.json();
         if (res.ok && data.auditId) {
+          if (data.report) {
+            cacheAuditReport(data.auditId, data.report);
+          }
           router.push(`/audit/${data.auditId}?onboarded=true`);
           return;
         } else if (res.status === 409 && data.existingAuditId) {

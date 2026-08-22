@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar/navbar";
 import { Footer } from "@/components/footer/footer";
-import { ArrowRight, Search, ShieldAlert, Sparkles, Compass, Home, RefreshCw } from "lucide-react";
+import { ArrowRight, Search, ShieldAlert, Sparkles, Compass, Home, RefreshCw, RotateCcw } from "lucide-react";
+import { getCachedAuditReport } from "@/lib/client/audit-cache";
 
 interface AuditNotFoundProps {
   auditId: string;
@@ -16,6 +17,45 @@ export function AuditNotFound({ auditId }: AuditNotFoundProps) {
   const [url, setUrl] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isRecovering, setIsRecovering] = useState(false);
+  const [recoverFailed, setRecoverFailed] = useState(false);
+  const recoveryAttempted = useRef(false);
+
+  // Best-effort recovery: if this browser created the audit moments ago, the
+  // report lives in sessionStorage. Re-hydrate it into the server and reload.
+  useEffect(() => {
+    if (recoveryAttempted.current) return;
+    recoveryAttempted.current = true;
+
+    const report = getCachedAuditReport(auditId);
+    if (!report) return;
+
+    let cancelled = false;
+    const recover = async () => {
+      setIsRecovering(true);
+      try {
+        const res = await fetch("/api/audit/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ report }),
+        });
+        if (!cancelled && res.ok) {
+          router.refresh();
+          return;
+        }
+      } catch {
+        // fall through
+      }
+      if (!cancelled) {
+        setRecoverFailed(true);
+        setIsRecovering(false);
+      }
+    };
+    recover();
+    return () => {
+      cancelled = true;
+    };
+  }, [auditId, router]);
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,6 +118,14 @@ export function AuditNotFound({ auditId }: AuditNotFoundProps) {
               </p>
             </div>
 
+            {/* Recovery In Progress */}
+            {isRecovering && (
+              <div className="border border-[#EFEFEA] bg-[#FCFCFA] p-5 flex items-center gap-3 text-xs font-mono">
+                <RotateCcw className="h-4 w-4 animate-spin text-[#66666E] shrink-0" />
+                <span className="text-[#66666E]">Restoring your recent audit report…</span>
+              </div>
+            )}
+
             {/* Why This Happens Box */}
             <div className="border border-[#EFEFEA] bg-[#FCFCFA] p-5 space-y-3 text-xs">
               <span className="font-mono uppercase tracking-wider text-[#66666E] font-semibold block text-[11px]">
@@ -87,6 +135,11 @@ export function AuditNotFound({ auditId }: AuditNotFoundProps) {
                 <li>The audit report may have expired or was generated in a previous test cycle.</li>
                 <li>The audit reference was typed or copied incorrectly.</li>
                 <li>The URL has not yet been analyzed by Rankly.</li>
+                {!recoverFailed && (
+                  <li>
+                    Reports created without a connected KV store are only guaranteed on the device that ran the audit.
+                  </li>
+                )}
               </ul>
             </div>
 

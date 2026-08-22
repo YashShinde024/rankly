@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Check, AlertCircle, Sparkles, Clock, ArrowUpRight } from "lucide-react";
 import { AuditHeroPreview } from "./audit-hero-preview";
+import { cacheAuditReport } from "@/lib/client/audit-cache";
 
 type ScanStep = "validating" | "connecting" | "checking" | "ai" | "done";
 
@@ -121,6 +122,10 @@ export function HeroSection() {
       setCompletedSteps((prev) => new Set(prev).add("validating").add("connecting").add("checking").add("ai"));
       setActiveStep("done");
 
+      if (data.report) {
+        cacheAuditReport(data.auditId, data.report);
+      }
+
       setTimeout(() => {
         router.push(`/audit/${encodeURIComponent(data.auditId)}`);
       }, 450);
@@ -135,8 +140,17 @@ export function HeroSection() {
   const isScanning = activeStep !== null;
 
   return (
-    <section className="pt-20 pb-16">
-      <div className="mx-auto max-w-6xl px-6">
+    <section className="relative pt-20 pb-16 overflow-hidden">
+      {/* Ambient background wash */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[520px]"
+        style={{
+          background:
+            "radial-gradient(600px 300px at 15% 0%, rgba(139,92,246,0.07), transparent 70%), radial-gradient(700px 340px at 85% 10%, rgba(59,130,246,0.06), transparent 70%)",
+        }}
+      />
+      <div className="relative mx-auto max-w-6xl px-6">
         {/* Left-Aligned Editorial Composition */}
         <div className="max-w-3xl">
           <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-[#66666E]">
@@ -151,7 +165,9 @@ export function HeroSection() {
           <h1 className="mt-4 text-4xl sm:text-6xl font-light tracking-tight text-[#121214] leading-[1.08]">
             Understand how your <br />
             website is seen by <br />
-            <span className="font-normal text-[#121214]">search & AI systems.</span>
+            <span className="bg-gradient-to-r from-violet-700 via-blue-600 to-pink-600 bg-clip-text text-transparent">
+              search &amp; AI systems.
+            </span>
           </h1>
 
           <p className="mt-6 max-w-xl text-sm sm:text-base text-[#66666E] leading-relaxed">

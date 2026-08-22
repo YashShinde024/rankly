@@ -121,8 +121,47 @@ export class AuditPersistenceEngine {
     return path.join(this.storageDir, filename);
   }
 
+  // --- VERCEL BLOB STORAGE (durable, no external service needed) ---
+  private getBlobToken(): string | undefined {
+    return process.env.BLOB_READ_WRITE_TOKEN;
+  }
+
+  private async blobPut(filename: string, data: string): Promise<boolean> {
+    const token = this.getBlobToken();
+    if (!token) return false;
+    try {
+      const { put } = await import("@vercel/blob");
+      await put(`rankly/${filename}`, data, { access: "public", token });
+      return true;
+    } catch (err) {
+      console.warn("[AuditPersistenceEngine] Blob write warning:", err);
+      return false;
+    }
+  }
+
+  private async blobGetJson<T>(filename: string): Promise<T | null> {
+    const token = this.getBlobToken();
+    if (!token) return null;
+    try {
+      const { head } = await import("@vercel/blob");
+      const meta = await head(`rankly/${filename}`);
+      const res = await fetch(meta.url, { cache: "no-store" });
+      if (!res.ok) return null;
+      return (await res.json()) as T;
+    } catch {
+      // Blob does not exist or is unreachable — fall back to other layers
+      return null;
+    }
+  }
+
   private async readJsonFile<T>(filename: string): Promise<T | null> {
     if (typeof window !== "undefined" || !fs.promises) return null;
+
+    // 1. Durable Vercel Blob storage when configured
+    const fromBlob = await this.blobGetJson<T>(filename);
+    if (fromBlob) return fromBlob;
+
+    // 2. Local disk / serverless /tmp
     try {
       const filePath = this.getFilePath(filename);
       const data = await fs.promises.readFile(filePath, "utf-8");
@@ -134,6 +173,12 @@ export class AuditPersistenceEngine {
 
   private async writeJsonFile<T>(filename: string, data: T): Promise<boolean> {
     if (typeof window !== "undefined" || !fs.promises) return false;
+
+    // 1. Durable Vercel Blob storage when configured
+    const blobWritten = await this.blobPut(filename, JSON.stringify(data));
+    if (blobWritten) return true;
+
+    // 2. Local disk / serverless /tmp
     try {
       this.ensureStorageDir();
       const filePath = this.getFilePath(filename);

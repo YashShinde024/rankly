@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight, ArrowLeft, Check, Globe, Search, Bot, MessageSquare, User, Sparkles } from "lucide-react";
 import { AiAccent } from "@/components/ui/ai-accent";
+import { cacheAuditReport } from "@/lib/client/audit-cache";
 
 const WEBSITE_TYPES = [
   { id: "saas", title: "SaaS / Web App", desc: "Software product, developer tool, or cloud app" },
@@ -152,6 +153,9 @@ export function FirstVisitOnboardingModal({ forceOpen = false }: FirstVisitOnboa
 
       if (res.ok && data.auditId) {
         setScanningPhase("Audit complete. Loading report...");
+        if (data.report) {
+          cacheAuditReport(data.auditId, data.report);
+        }
         setTimeout(() => {
           setIsOpen(false);
           router.push(`/audit/${data.auditId}`);
